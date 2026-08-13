@@ -34,7 +34,7 @@ export function roomToWorld(hall, [lx, ly, lz]) {
   return [hall.center - lx, ly, -CORRIDOR_HALF - lz]
 }
 
-// 由玩家世界坐标判断当前所处区域（分厅 / 中央走廊 / 主入口），供展厅地图标记「你在此」。
+// 由玩家世界坐标判断当前所处区域（分厅 / 中央走廊 / 主入口），供展厅地图标记当前位置。
 export function hallAtPosition(x, z) {
   const corridorHalf = CONFIG.hall.corridorHalf ?? 4
   const halfDepth = CONFIG.hall.depth / 2

@@ -70,11 +70,11 @@ export function Lights() {
 
   return (
     <>
-      <hemisphereLight args={['#f7fafc', '#c8d0d8', 1.04]} />
-      <ambientLight intensity={0.66} color="#f7f9fc" />
+      <hemisphereLight args={['#f7fafc', '#c8d0d8', 0.82]} />
+      <ambientLight intensity={0.42} color="#f7f9fc" />
 
       {/* 仅保留弱化的整体补光，不再让它产生室内假阴影。 */}
-      <directionalLight position={[6, 10, 4]} intensity={0.38} color="#eef3f9" />
+      <directionalLight position={[6, 10, 4]} intensity={0.28} color="#eef3f9" />
 
       <AimedSpotLight
         position={[0, ceilingY, 0]}
@@ -111,7 +111,7 @@ export function Lights() {
         target={[-sideLightX + 0.35, 1.55, 0]}
         angle={0.56}
         penumbra={0.55}
-        intensity={4.8}
+        intensity={4.1}
         distance={8.2}
         decay={2}
         color="#eef4fa"
@@ -122,7 +122,7 @@ export function Lights() {
         target={[sideLightX - 0.35, 1.55, 0]}
         angle={0.56}
         penumbra={0.55}
-        intensity={4.8}
+        intensity={4.1}
         distance={8.2}
         decay={2}
         color="#eef4fa"
@@ -135,15 +135,15 @@ export function Lights() {
           target={light.target}
           angle={0.58}
           penumbra={0.52}
-          intensity={light.intensity}
+          intensity={light.intensity * 0.94}
           distance={light.distance}
           decay={2}
           color="#f7fafc"
         />
       ))}
 
-      <pointLight position={[0, 2.8, 0]} intensity={1.4} distance={9} decay={2} color="#f1f5fa" />
-      <pointLight position={[0, 5.9, 6.3]} intensity={2.4} distance={12} decay={2} color="#f5f8fb" />
+      <pointLight position={[0, 2.8, 0]} intensity={0.9} distance={8.2} decay={2} color="#f1f5fa" />
+      <pointLight position={[0, 5.9, 6.3]} intensity={1.8} distance={10.8} decay={2} color="#f5f8fb" />
     </>
   )
 }

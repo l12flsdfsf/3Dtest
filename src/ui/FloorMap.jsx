@@ -2,7 +2,7 @@ import { HALLS } from '../data/halls.js'
 import { CONFIG } from '../data/config.js'
 
 // 展厅俯视平面图：背景为 C-3.png，上方叠加按真实几何生成的分厅 / 走廊 / 入口，
-// 并以「你在此」标记当前区域。方向：入口（+x）在下方。
+// 并以蓝色圆点标记当前区域（圆点置于名称上方，避免遮挡文字）。方向：入口（+x）在下方。
 const SIZE = 280
 const scale = SIZE / CONFIG.hall.width
 const halfW = CONFIG.hall.width / 2
@@ -99,13 +99,10 @@ export function FloorMap({ currentHall }) {
         </text>
         <path d={`M ${sx(0) - 7} ${SIZE - 20} L ${sx(0) + 7} ${SIZE - 20} L ${sx(0)} ${SIZE - 10} Z`} fill="#94a3b8" />
 
-        {/* 你在此 标记 */}
+        {/* 当前位置标记：圆点置于区域名称上方，避免遮挡文字 */}
         <g>
-          <circle cx={anchor.cx} cy={anchor.cy} r={11} fill="#2563eb" opacity={0.16} />
-          <circle cx={anchor.cx} cy={anchor.cy} r={5} fill="#2563eb" />
-          <text x={anchor.cx} y={anchor.cy - 15} textAnchor="middle" fontSize={10} fill="#2563eb" fontWeight={700}>
-            你在此
-          </text>
+          <circle cx={anchor.cx} cy={anchor.cy - 22} r={11} fill="#2563eb" opacity={0.16} />
+          <circle cx={anchor.cx} cy={anchor.cy - 22} r={5} fill="#2563eb" />
         </g>
       </svg>
     </div>

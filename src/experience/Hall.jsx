@@ -4,7 +4,7 @@ import { CONFIG } from '../data/config.js'
 import { HALLS, LOCAL_ANCHORS } from '../data/halls.js'
 import { TROPHY_NICHE } from '../data/trophies.js'
 
-const FLOOR_GUIDE_TEXTURE_VERSION = '2026-08-12-floor-guides-v3'
+const FLOOR_GUIDE_TEXTURE_VERSION = '2026-08-13-floor-guides-v4'
 
 function toCanvas(size, width, depth, x, z) {
   return [((x / width) + 0.5) * size, (0.5 - z / depth) * size]
@@ -12,104 +12,64 @@ function toCanvas(size, width, depth, x, z) {
 
 function drawFlowLine(ctx, size, width, depth, points, color, glow, lineWidth) {
   const mapped = points.map(([x, z]) => toCanvas(size, width, depth, x, z))
+  const gap = lineWidth * 0.9 // 双线间距（铜条镶嵌）
+
+  // 沿路径法向偏移，得到两条平行的极细线
+  const offsetPath = (offset) => {
+    const out = []
+    for (let i = 0; i < mapped.length; i += 1) {
+      const prev = mapped[Math.max(0, i - 1)]
+      const next = mapped[Math.min(mapped.length - 1, i + 1)]
+      let nx = next[0] - prev[0]
+      let ny = next[1] - prev[1]
+      const len = Math.hypot(nx, ny) || 1
+      out.push([mapped[i][0] + (-ny / len) * offset, mapped[i][1] + (nx / len) * offset])
+    }
+    return out
+  }
+
+  const strokePath = (pts) => {
+    if (pts.length < 2) return
+    ctx.beginPath()
+    ctx.moveTo(pts[0][0], pts[0][1])
+    for (let i = 0; i < pts.length - 1; i += 1) {
+      const [x0, y0] = pts[i]
+      const [x1, y1] = pts[i + 1]
+      const midX = (x0 + x1) / 2
+      const midY = (y0 + y1) / 2
+      ctx.quadraticCurveTo(x0, y0, midX, midY)
+    }
+    const [lastX, lastY] = pts[pts.length - 1]
+    ctx.lineTo(lastX, lastY)
+    ctx.stroke()
+  }
 
   ctx.save()
   ctx.lineCap = 'round'
   ctx.lineJoin = 'round'
-
-  const drawSmoothPath = () => {
-    if (mapped.length < 2) return
-    ctx.beginPath()
-    ctx.moveTo(mapped[0][0], mapped[0][1])
-
-    for (let i = 0; i < mapped.length - 1; i += 1) {
-      const [x0, y0] = mapped[i]
-      const [x1, y1] = mapped[i + 1]
-      const midX = (x0 + x1) / 2
-      const midY = (y0 + y1) / 2
-
-      if (i === 0) {
-        ctx.quadraticCurveTo(x0, y0, midX, midY)
-      } else {
-        ctx.quadraticCurveTo(x0, y0, midX, midY)
-      }
-    }
-
-    const [lastX, lastY] = mapped[mapped.length - 1]
-    ctx.lineTo(lastX, lastY)
-  }
-
-  ctx.strokeStyle = glow
-  ctx.lineWidth = lineWidth * 1.18
-  ctx.shadowColor = glow
-  ctx.shadowBlur = lineWidth * 0.34
-  drawSmoothPath()
-  ctx.stroke()
-
   ctx.strokeStyle = color
-  ctx.lineWidth = lineWidth
-  ctx.shadowBlur = 0
-  drawSmoothPath()
-  ctx.stroke()
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.28)'
-  ctx.lineWidth = Math.max(1.2, lineWidth * 0.12)
-  drawSmoothPath()
-  ctx.stroke()
-
+  ctx.lineWidth = Math.max(1.3, lineWidth * 0.22) // 极细铜线
+  strokePath(offsetPath(gap / 2))
+  strokePath(offsetPath(-gap / 2))
   ctx.restore()
 }
 
-function drawArrow(ctx, size, width, depth, x, z, angle, color, arrowSize = 48) {
+function drawArrow(ctx, size, width, depth, x, z, angle, color, arrowSize = 28) {
   const [px, py] = toCanvas(size, width, depth, x, z)
-  const tailX = -arrowSize * 0.76
-  const headBaseX = arrowSize * 0.08
-  const tipX = arrowSize * 0.74
-  const wingY = arrowSize * 0.25
-  const haloWidth = Math.max(3, arrowSize * 0.16)
-  const shaftWidth = Math.max(1.8, arrowSize * 0.09)
-
-  const drawHead = (scale = 1) => {
-    ctx.beginPath()
-    ctx.moveTo(tipX * scale, 0)
-    ctx.lineTo(headBaseX * scale, -wingY * scale)
-    ctx.lineTo(headBaseX * scale, wingY * scale)
-    ctx.closePath()
-  }
+  const s = arrowSize
 
   ctx.save()
   ctx.translate(px, py)
   ctx.rotate(angle)
-
-  ctx.lineCap = 'round'
-
-  ctx.strokeStyle = 'rgba(15,23,42,0.22)'
-  ctx.lineWidth = haloWidth
-  ctx.beginPath()
-  ctx.moveTo(tailX, 0)
-  ctx.lineTo(headBaseX, 0)
-  ctx.stroke()
-
-  ctx.fillStyle = 'rgba(15,23,42,0.16)'
-  drawHead(1.16)
-  ctx.fill()
-
   ctx.strokeStyle = color
-  ctx.lineWidth = shaftWidth
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = Math.max(1.6, s * 0.1)
   ctx.beginPath()
-  ctx.moveTo(tailX, 0)
-  ctx.lineTo(headBaseX, 0)
+  ctx.moveTo(-s * 0.5, -s * 0.42)
+  ctx.lineTo(s * 0.5, 0)
+  ctx.lineTo(-s * 0.5, s * 0.42)
   ctx.stroke()
-
-  ctx.fillStyle = color
-  drawHead()
-  ctx.fill()
-
-  ctx.strokeStyle = 'rgba(255,255,255,0.7)'
-  ctx.lineWidth = Math.max(1, arrowSize * 0.04)
-  drawHead()
-  ctx.stroke()
-
   ctx.restore()
 }
 
@@ -128,6 +88,48 @@ function drawFineEllipses(ctx, size, { count, tone, alpha, radius, stretch = [0.
     ctx.translate(randomBetween(margin, size - margin), randomBetween(margin, size - margin))
     ctx.rotate(randomBetween(0, Math.PI))
     ctx.fillStyle = `rgba(${toneValue},${toneValue},${toneValue},${opacity})`
+    ctx.beginPath()
+    ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+}
+
+function drawSoftClouds(ctx, size, { count, colors, alpha, radius, margin = 0 }) {
+  for (let i = 0; i < count; i += 1) {
+    const color = colors[i % colors.length]
+    const opacity = randomBetween(alpha[0], alpha[1])
+    const r = randomBetween(radius[0], radius[1])
+    const x = randomBetween(margin, size - margin)
+    const y = randomBetween(margin, size - margin)
+    const gradient = ctx.createRadialGradient(x, y, 0, x, y, r)
+
+    gradient.addColorStop(0, `rgba(${color[0]},${color[1]},${color[2]},${opacity})`)
+    gradient.addColorStop(0.45, `rgba(${color[0]},${color[1]},${color[2]},${opacity * 0.42})`)
+    gradient.addColorStop(1, `rgba(${color[0]},${color[1]},${color[2]},0)`)
+
+    ctx.fillStyle = gradient
+    ctx.beginPath()
+    ctx.arc(x, y, r, 0, Math.PI * 2)
+    ctx.fill()
+  }
+}
+
+function drawSoftPasses(
+  ctx,
+  size,
+  { count, colors, alpha, radiusX, radiusY, rotation = [-0.08, 0.08], margin = 0 },
+) {
+  for (let i = 0; i < count; i += 1) {
+    const color = colors[i % colors.length]
+    const opacity = randomBetween(alpha[0], alpha[1])
+    const rx = randomBetween(radiusX[0], radiusX[1])
+    const ry = randomBetween(radiusY[0], radiusY[1])
+
+    ctx.save()
+    ctx.translate(randomBetween(margin, size - margin), randomBetween(margin, size - margin))
+    ctx.rotate(randomBetween(rotation[0], rotation[1]))
+    ctx.fillStyle = `rgba(${color[0]},${color[1]},${color[2]},${opacity})`
     ctx.beginPath()
     ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI * 2)
     ctx.fill()
@@ -218,9 +220,9 @@ function useFloorGuideTexture() {
         [-2.2, 3.05],
         [-9.8, 3.05],
       ],
-      'rgba(41,198,255,0.9)',
-      'rgba(41,198,255,0.34)',
-      10,
+      'rgba(180,138,82,0.8)',
+      'rgba(180,138,82,0.28)',
+      5,
     )
     drawFlowLine(
       ctx,
@@ -235,9 +237,9 @@ function useFloorGuideTexture() {
         [-2.2, -3.05],
         [-9.8, -3.05],
       ],
-      'rgba(255,92,168,0.9)',
-      'rgba(255,92,168,0.34)',
-      10,
+      'rgba(180,138,82,0.8)',
+      'rgba(180,138,82,0.28)',
+      5,
     )
     drawFlowLine(
       ctx,
@@ -250,9 +252,9 @@ function useFloorGuideTexture() {
         [3.6, 0],
         [2.1, 0],
       ],
-      'rgba(245,158,11,0.88)',
-      'rgba(245,158,11,0.28)',
-      7,
+      'rgba(180,138,82,0.8)',
+      'rgba(180,138,82,0.28)',
+      4,
     )
     drawFlowLine(
       ctx,
@@ -264,9 +266,9 @@ function useFloorGuideTexture() {
         [-2.8, 3.75],
         [-4.4, 4.1],
       ],
-      'rgba(20,184,166,0.9)',
-      'rgba(20,184,166,0.26)',
-      5.5,
+      'rgba(180,138,82,0.72)',
+      'rgba(180,138,82,0.24)',
+      3.5,
     )
     drawFlowLine(
       ctx,
@@ -278,16 +280,10 @@ function useFloorGuideTexture() {
         [-2.8, -3.75],
         [-4.4, -4.1],
       ],
-      'rgba(139,92,246,0.9)',
-      'rgba(139,92,246,0.26)',
-      5.5,
+      'rgba(180,138,82,0.72)',
+      'rgba(180,138,82,0.24)',
+      3.5,
     )
-
-    drawArrow(ctx, size, width, depth, 9.1, 0, Math.PI, 'rgba(245,158,11,0.96)', 42)
-    drawArrow(ctx, size, width, depth, -6.9, 3.05, Math.PI, 'rgba(41,198,255,0.96)', 36)
-    drawArrow(ctx, size, width, depth, -6.9, -3.05, Math.PI, 'rgba(255,92,168,0.96)', 36)
-    drawArrow(ctx, size, width, depth, -4.05, 4.02, -2.6, 'rgba(20,184,166,0.96)', 28)
-    drawArrow(ctx, size, width, depth, -4.05, -4.02, 2.6, 'rgba(139,92,246,0.96)', 28)
 
     const texture = new THREE.CanvasTexture(canvas)
     texture.colorSpace = THREE.SRGBColorSpace
@@ -306,21 +302,76 @@ function useWallMaterialMaps() {
     colorCanvas.height = size
     const colorCtx = colorCanvas.getContext('2d')
 
-    colorCtx.fillStyle = '#f6efe8'
+    colorCtx.fillStyle = '#f3ede5'
     colorCtx.fillRect(0, 0, size, size)
-    drawFineEllipses(colorCtx, size, {
-      count: 5400,
-      tone: [240, 250],
-      alpha: [0.006, 0.016],
-      radius: [0.35, 1.1],
-      stretch: [0.45, 1.35],
+    const colorWash = colorCtx.createLinearGradient(0, 0, size, size)
+    colorWash.addColorStop(0, 'rgba(255,255,255,0.22)')
+    colorWash.addColorStop(0.46, 'rgba(248,242,236,0.05)')
+    colorWash.addColorStop(1, 'rgba(220,227,233,0.16)')
+    colorCtx.fillStyle = colorWash
+    colorCtx.fillRect(0, 0, size, size)
+
+    const topCoolShade = colorCtx.createLinearGradient(0, 0, 0, size * 0.38)
+    topCoolShade.addColorStop(0, 'rgba(218,224,230,0.12)')
+    topCoolShade.addColorStop(0.32, 'rgba(218,224,230,0.05)')
+    topCoolShade.addColorStop(1, 'rgba(214,223,232,0)')
+    colorCtx.fillStyle = topCoolShade
+    colorCtx.fillRect(0, 0, size, size * 0.42)
+
+    const bottomWarmShade = colorCtx.createLinearGradient(0, size, 0, size * 0.56)
+    bottomWarmShade.addColorStop(0, 'rgba(223,216,208,0.1)')
+    bottomWarmShade.addColorStop(0.28, 'rgba(223,216,208,0.045)')
+    bottomWarmShade.addColorStop(1, 'rgba(223,216,208,0)')
+    colorCtx.fillStyle = bottomWarmShade
+    colorCtx.fillRect(0, size * 0.5, size, size * 0.5)
+
+    const sideShade = colorCtx.createLinearGradient(0, 0, size, 0)
+    sideShade.addColorStop(0, 'rgba(124,130,138,0.045)')
+    sideShade.addColorStop(0.08, 'rgba(124,130,138,0)')
+    sideShade.addColorStop(0.92, 'rgba(124,130,138,0)')
+    sideShade.addColorStop(1, 'rgba(124,130,138,0.045)')
+    colorCtx.fillStyle = sideShade
+    colorCtx.fillRect(0, 0, size, size)
+
+    drawSoftClouds(colorCtx, size, {
+      count: 34,
+      colors: [
+        [255, 255, 255],
+        [241, 236, 229],
+        [229, 233, 237],
+        [234, 227, 218],
+      ],
+      alpha: [0.024, 0.068],
+      radius: [170, 580],
+      margin: edgeMargin,
+    })
+    drawSoftPasses(colorCtx, size, {
+      count: 96,
+      colors: [
+        [245, 240, 234],
+        [233, 236, 239],
+        [255, 255, 255],
+        [231, 224, 216],
+      ],
+      alpha: [0.006, 0.018],
+      radiusX: [12, 30],
+      radiusY: [220, 760],
+      rotation: [-0.08, 0.08],
       margin: edgeMargin,
     })
     drawFineEllipses(colorCtx, size, {
-      count: 2800,
-      tone: [228, 238],
-      alpha: [0.004, 0.012],
-      radius: [0.45, 1.45],
+      count: 1200,
+      tone: [230, 242],
+      alpha: [0.002, 0.008],
+      radius: [0.4, 1.35],
+      stretch: [0.45, 1.6],
+      margin: edgeMargin,
+    })
+    drawFineEllipses(colorCtx, size, {
+      count: 640,
+      tone: [216, 228],
+      alpha: [0.002, 0.006],
+      radius: [0.5, 1.8],
       stretch: [0.5, 1.45],
       margin: edgeMargin,
     })
@@ -330,22 +381,57 @@ function useWallMaterialMaps() {
     bumpCanvas.height = size
     const bumpCtx = bumpCanvas.getContext('2d')
 
-    bumpCtx.fillStyle = '#7f7f7f'
+    bumpCtx.fillStyle = '#808080'
     bumpCtx.fillRect(0, 0, size, size)
 
-    drawFineEllipses(bumpCtx, size, {
-      count: 5200,
-      tone: [124, 132],
-      alpha: [0.008, 0.02],
-      radius: [0.3, 0.95],
-      stretch: [0.45, 1.4],
+    const bumpTopShade = bumpCtx.createLinearGradient(0, 0, 0, size * 0.34)
+    bumpTopShade.addColorStop(0, 'rgba(131,131,131,0.12)')
+    bumpTopShade.addColorStop(1, 'rgba(131,131,131,0)')
+    bumpCtx.fillStyle = bumpTopShade
+    bumpCtx.fillRect(0, 0, size, size * 0.36)
+
+    const bumpBottomShade = bumpCtx.createLinearGradient(0, size, 0, size * 0.62)
+    bumpBottomShade.addColorStop(0, 'rgba(123,123,123,0.12)')
+    bumpBottomShade.addColorStop(1, 'rgba(123,123,123,0)')
+    bumpCtx.fillStyle = bumpBottomShade
+    bumpCtx.fillRect(0, size * 0.58, size, size * 0.42)
+
+    drawSoftClouds(bumpCtx, size, {
+      count: 26,
+      colors: [
+        [135, 135, 135],
+        [124, 124, 124],
+        [130, 130, 130],
+      ],
+      alpha: [0.028, 0.075],
+      radius: [140, 420],
+      margin: edgeMargin,
+    })
+    drawSoftPasses(bumpCtx, size, {
+      count: 68,
+      colors: [
+        [122, 122, 122],
+        [134, 134, 134],
+      ],
+      alpha: [0.008, 0.03],
+      radiusX: [10, 26],
+      radiusY: [170, 640],
+      rotation: [-0.05, 0.05],
       margin: edgeMargin,
     })
     drawFineEllipses(bumpCtx, size, {
       count: 1800,
+      tone: [123, 133],
+      alpha: [0.003, 0.01],
+      radius: [0.32, 0.95],
+      stretch: [0.45, 1.4],
+      margin: edgeMargin,
+    })
+    drawFineEllipses(bumpCtx, size, {
+      count: 780,
       tone: [120, 136],
-      alpha: [0.006, 0.014],
-      radius: [0.6, 1.6],
+      alpha: [0.003, 0.008],
+      radius: [0.65, 1.7],
       stretch: [0.5, 1.5],
       margin: edgeMargin,
     })
@@ -355,21 +441,71 @@ function useWallMaterialMaps() {
     roughnessCanvas.height = size
     const roughnessCtx = roughnessCanvas.getContext('2d')
 
-    roughnessCtx.fillStyle = '#dddddd'
+    roughnessCtx.fillStyle = '#ece9e4'
     roughnessCtx.fillRect(0, 0, size, size)
+    const roughnessWash = roughnessCtx.createLinearGradient(size, 0, 0, size)
+    roughnessWash.addColorStop(0, 'rgba(255,255,255,0.12)')
+    roughnessWash.addColorStop(1, 'rgba(214,214,214,0.14)')
+    roughnessCtx.fillStyle = roughnessWash
+    roughnessCtx.fillRect(0, 0, size, size)
+
+    const roughnessTop = roughnessCtx.createLinearGradient(0, 0, 0, size * 0.34)
+    roughnessTop.addColorStop(0, 'rgba(242,242,242,0.13)')
+    roughnessTop.addColorStop(1, 'rgba(244,244,244,0)')
+    roughnessCtx.fillStyle = roughnessTop
+    roughnessCtx.fillRect(0, 0, size, size * 0.36)
+
+    const roughnessBottom = roughnessCtx.createLinearGradient(0, size, 0, size * 0.58)
+    roughnessBottom.addColorStop(0, 'rgba(236,235,232,0.11)')
+    roughnessBottom.addColorStop(1, 'rgba(240,238,234,0)')
+    roughnessCtx.fillStyle = roughnessBottom
+    roughnessCtx.fillRect(0, size * 0.54, size, size * 0.46)
+
+    const roughnessSides = roughnessCtx.createLinearGradient(0, 0, size, 0)
+    roughnessSides.addColorStop(0, 'rgba(244,244,244,0.075)')
+    roughnessSides.addColorStop(0.1, 'rgba(244,244,244,0)')
+    roughnessSides.addColorStop(0.9, 'rgba(244,244,244,0)')
+    roughnessSides.addColorStop(1, 'rgba(244,244,244,0.075)')
+    roughnessCtx.fillStyle = roughnessSides
+    roughnessCtx.fillRect(0, 0, size, size)
+
+    drawSoftClouds(roughnessCtx, size, {
+      count: 30,
+      colors: [
+        [238, 236, 232],
+        [222, 222, 222],
+        [229, 231, 234],
+        [234, 228, 221],
+      ],
+      alpha: [0.024, 0.068],
+      radius: [180, 500],
+      margin: edgeMargin,
+    })
+    drawSoftPasses(roughnessCtx, size, {
+      count: 72,
+      colors: [
+        [214, 214, 214],
+        [236, 236, 236],
+      ],
+      alpha: [0.008, 0.024],
+      radiusX: [12, 30],
+      radiusY: [200, 720],
+      rotation: [-0.05, 0.05],
+      margin: edgeMargin,
+    })
     drawFineEllipses(roughnessCtx, size, {
-      count: 4200,
-      tone: [212, 228],
-      alpha: [0.008, 0.018],
-      radius: [0.35, 1.2],
+      count: 1500,
+      tone: [214, 230],
+      alpha: [0.003, 0.01],
+      radius: [0.35, 1.15],
       stretch: [0.45, 1.4],
       margin: edgeMargin,
     })
     drawFineEllipses(roughnessCtx, size, {
-      count: 1800,
-      tone: [194, 210],
-      alpha: [0.006, 0.014],
-      radius: [0.55, 1.6],
+      count: 620,
+      tone: [198, 214],
+      alpha: [0.002, 0.007],
+      radius: [0.55, 1.5],
       stretch: [0.5, 1.45],
       margin: edgeMargin,
     })
@@ -463,6 +599,40 @@ function useLedTexture() {
     texture.colorSpace = THREE.SRGBColorSpace
     texture.anisotropy = 8
     return texture
+  }, [])
+}
+
+// 基座前缘灯带的扩散光晕贴图（无 bloom 下用渐变 + Additive 叠加模拟漏光扩散）。
+function useBaseGlowTextures() {
+  return useMemo(() => {
+    // 竖直光晕：沿高度方向中间亮、上下淡出（贴基座前面，向屏幕底部 / 基座下沿扩散）。
+    const frontCanvas = document.createElement('canvas')
+    frontCanvas.width = 32
+    frontCanvas.height = 256
+    const fctx = frontCanvas.getContext('2d')
+    const fg = fctx.createLinearGradient(0, 0, 0, frontCanvas.height)
+    fg.addColorStop(0, 'rgba(255,196,102,0)')
+    fg.addColorStop(0.5, 'rgba(255,196,102,0.4)')
+    fg.addColorStop(1, 'rgba(255,196,102,0)')
+    fctx.fillStyle = fg
+    fctx.fillRect(0, 0, frontCanvas.width, frontCanvas.height)
+    const front = new THREE.CanvasTexture(frontCanvas)
+    front.colorSpace = THREE.SRGBColorSpace
+
+    // 地面光晕：沿宽度方向近基座亮、远端淡出（向前扩散成光毯）。
+    const floorCanvas = document.createElement('canvas')
+    floorCanvas.width = 256
+    floorCanvas.height = 32
+    const dctx = floorCanvas.getContext('2d')
+    const dg = dctx.createLinearGradient(0, 0, floorCanvas.width, 0)
+    dg.addColorStop(0, 'rgba(255,184,77,0.3)')
+    dg.addColorStop(1, 'rgba(255,184,77,0)')
+    dctx.fillStyle = dg
+    dctx.fillRect(0, 0, floorCanvas.width, floorCanvas.height)
+    const floor = new THREE.CanvasTexture(floorCanvas)
+    floor.colorSpace = THREE.SRGBColorSpace
+
+    return { front, floor }
   }, [])
 }
 
@@ -561,6 +731,74 @@ function useSandTableTexture() {
   }, [])
 }
 
+function useWallFaceShadowTexture() {
+  return useMemo(() => {
+    const canvas = document.createElement('canvas')
+    canvas.width = 512
+    canvas.height = 512
+    const ctx = canvas.getContext('2d')
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    const top = ctx.createLinearGradient(0, 0, 0, canvas.height * 0.2)
+    top.addColorStop(0, 'rgba(108,118,132,0.12)')
+    top.addColorStop(0.58, 'rgba(108,118,132,0.04)')
+    top.addColorStop(1, 'rgba(108,118,132,0)')
+    ctx.fillStyle = top
+    ctx.fillRect(0, 0, canvas.width, canvas.height * 0.22)
+
+    const bottom = ctx.createLinearGradient(0, canvas.height, 0, canvas.height * 0.82)
+    bottom.addColorStop(0, 'rgba(114,98,84,0.13)')
+    bottom.addColorStop(0.52, 'rgba(114,98,84,0.045)')
+    bottom.addColorStop(1, 'rgba(114,98,84,0)')
+    ctx.fillStyle = bottom
+    ctx.fillRect(0, canvas.height * 0.79, canvas.width, canvas.height * 0.21)
+
+    const left = ctx.createLinearGradient(0, 0, canvas.width * 0.14, 0)
+    left.addColorStop(0, 'rgba(92,98,108,0.08)')
+    left.addColorStop(0.62, 'rgba(92,98,108,0.025)')
+    left.addColorStop(1, 'rgba(92,98,108,0)')
+    ctx.fillStyle = left
+    ctx.fillRect(0, 0, canvas.width * 0.14, canvas.height)
+
+    const right = ctx.createLinearGradient(canvas.width, 0, canvas.width * 0.86, 0)
+    right.addColorStop(0, 'rgba(92,98,108,0.08)')
+    right.addColorStop(0.62, 'rgba(92,98,108,0.025)')
+    right.addColorStop(1, 'rgba(92,98,108,0)')
+    ctx.fillStyle = right
+    ctx.fillRect(canvas.width * 0.86, 0, canvas.width * 0.14, canvas.height)
+
+    ;[
+      [0, 0],
+      [canvas.width, 0],
+      [0, canvas.height],
+      [canvas.width, canvas.height],
+    ].forEach(([x, y], index) => {
+      const radius = index < 2 ? canvas.width * 0.18 : canvas.width * 0.15
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius)
+      const color = index < 2 ? 'rgba(94,104,116,0.06)' : 'rgba(108,94,82,0.05)'
+      gradient.addColorStop(0, color)
+      gradient.addColorStop(0.55, color.replace(/0\.\d+\)$/, '0.016)'))
+      gradient.addColorStop(1, color.replace(/0\.\d+\)$/, '0)'))
+      ctx.fillStyle = gradient
+      ctx.beginPath()
+      ctx.rect(
+        x === 0 ? 0 : canvas.width - radius,
+        y === 0 ? 0 : canvas.height - radius,
+        radius,
+        radius,
+      )
+      ctx.fill()
+    })
+
+    const texture = new THREE.CanvasTexture(canvas)
+    texture.colorSpace = THREE.SRGBColorSpace
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping
+    texture.anisotropy = 4
+    return texture
+  }, [])
+}
+
 function CeilingLight({ position, rotation = [0, 0, 0], args = [5, 0.05, 0.08] }) {
   return (
     <mesh position={position} rotation={rotation}>
@@ -575,7 +813,7 @@ function CeilingLight({ position, rotation = [0, 0, 0], args = [5, 0.05, 0.08] }
   )
 }
 
-const WALL_SURFACE_COLOR = '#f6eee6'
+const WALL_SURFACE_COLOR = '#f2eeea'
 const CEILING_SURFACE_COLOR = '#fbf6ef'
 const FLOOR_SURFACE_COLOR = '#f6f5f2'
 const TRIM_METAL_MATERIAL = {
@@ -594,16 +832,14 @@ const DOOR_FRAME_MATERIAL = {
 
 function WallSurfaceMaterial({ wallMaps, color = WALL_SURFACE_COLOR }) {
   return (
-    <meshPhysicalMaterial
+    <meshStandardMaterial
       color={color}
       map={wallMaps.colorMap}
       bumpMap={wallMaps.bumpMap}
-      bumpScale={0.0045}
+      bumpScale={0.0021}
       roughnessMap={wallMaps.roughnessMap}
-      roughness={0.92}
-      metalness={0.01}
-      clearcoat={0.02}
-      clearcoatRoughness={0.9}
+      roughness={0.97}
+      metalness={0}
     />
   )
 }
@@ -621,7 +857,138 @@ function FloorSurfaceMaterial({ floorTexture }) {
   )
 }
 
-function CorridorPortalWalls({ z, wallMaps }) {
+function WallFaceShadowLayer({ shadowTexture, size, position = [0, 0, 0], rotation = [0, 0, 0], opacity = 1 }) {
+  return (
+    <mesh position={position} rotation={rotation} renderOrder={3}>
+      <planeGeometry args={size} />
+      <meshBasicMaterial
+        map={shadowTexture}
+        transparent
+        opacity={opacity}
+        depthWrite={false}
+        toneMapped={false}
+        side={THREE.DoubleSide}
+      />
+    </mesh>
+  )
+}
+
+function FloorContactShadow({ position = [0, 0, 0], rotation = [0, 0, 0], size = [1, 1], opacity = 0.1 }) {
+  return (
+    <mesh position={position} rotation={rotation} renderOrder={2}>
+      <planeGeometry args={size} />
+      <meshBasicMaterial color="#5b5d63" transparent opacity={opacity} depthWrite={false} toneMapped={false} />
+    </mesh>
+  )
+}
+
+function WallPanel({
+  args,
+  position,
+  rotation = [0, 0, 0],
+  wallMaps,
+  shadowTexture,
+  shadowFaces = [],
+  shadowOpacity = 0.72,
+  castShadow = true,
+  receiveShadow = true,
+}) {
+  const [sx, sy, sz] = args
+  const faceOffset = 0.005
+  const overlays = shadowFaces
+    .flatMap((face) => {
+    if (face === 'front') {
+      return [{ key: 'front', size: [sx, sy], position: [0, 0, sz / 2 + faceOffset], rotation: [0, 0, 0] }]
+    }
+    if (face === 'back') {
+      return [{ key: 'back', size: [sx, sy], position: [0, 0, -(sz / 2 + faceOffset)], rotation: [0, Math.PI, 0] }]
+    }
+    if (face === 'left') {
+      return [{ key: 'left', size: [sz, sy], position: [-(sx / 2 + faceOffset), 0, 0], rotation: [0, -Math.PI / 2, 0] }]
+    }
+    if (face === 'right') {
+      return [{ key: 'right', size: [sz, sy], position: [sx / 2 + faceOffset, 0, 0], rotation: [0, Math.PI / 2, 0] }]
+    }
+    return []
+    })
+    .map((overlay) => {
+      const [ow, oh] = overlay.size
+
+      if (ow < 0.32 || oh < 0.72) return null
+
+      let opacity = shadowOpacity
+      if (ow < 0.9) opacity *= 0.56
+      else if (ow < 1.8) opacity *= 0.74
+      else if (ow > 5) opacity *= 0.9
+
+      if (oh < 1.6) opacity *= 0.78
+
+      return {
+        ...overlay,
+        opacity,
+      }
+    })
+    .filter(Boolean)
+
+  return (
+    <group position={position} rotation={rotation}>
+      <mesh castShadow={castShadow} receiveShadow={receiveShadow}>
+        <boxGeometry args={args} />
+        <WallSurfaceMaterial wallMaps={wallMaps} />
+      </mesh>
+      {shadowTexture
+        ? overlays.map((overlay) => (
+            <WallFaceShadowLayer
+              key={overlay.key}
+              shadowTexture={shadowTexture}
+              size={overlay.size}
+              position={overlay.position}
+              rotation={overlay.rotation}
+              opacity={overlay.opacity}
+            />
+          ))
+        : null}
+    </group>
+  )
+}
+
+function CorridorWallWashLight({ xMin, xMax, z, wallDepth = 0.22, baseGlow }) {
+  const length = xMax - xMin
+  const x = (xMin + xMax) / 2
+  const direction = -Math.sign(z || 1)
+  const stripHeight = 0.022
+  const stripDepth = 0.014
+  const stripY = 0.135
+  const stripZ = z + direction * (wallDepth / 2 + stripDepth / 2 - 0.003)
+
+  return (
+    <group>
+      <mesh position={[x, stripY, stripZ]}>
+        <boxGeometry args={[Math.max(0.3, length - 0.06), stripHeight, stripDepth]} />
+        <meshStandardMaterial
+          color="#ffe09a"
+          emissive="#ffc466"
+          emissiveIntensity={1}
+          toneMapped={false}
+        />
+      </mesh>
+
+      <mesh position={[x, stripY, stripZ + direction * 0.004]} renderOrder={2}>
+        <planeGeometry args={[Math.max(0.3, length - 0.08), 0.2]} />
+        <meshBasicMaterial
+          map={baseGlow.front}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+    </group>
+  )
+}
+
+function CorridorPortalWalls({ z, wallMaps, baseGlow, shadowTexture }) {
   const { width, height } = CONFIG.hall
   const halfWidth = width / 2
   const doorCenters = [-width / 3, 0, width / 3]
@@ -636,17 +1003,27 @@ function CorridorPortalWalls({ z, wallMaps }) {
   return (
     <>
       {solidRanges.map(([xMin, xMax], index) => (
-        <mesh key={`solid-${z}-${index}`} position={[(xMin + xMax) / 2, height / 2, z]} castShadow receiveShadow>
-          <boxGeometry args={[xMax - xMin, height, 0.22]} />
-          <WallSurfaceMaterial wallMaps={wallMaps} />
-        </mesh>
+        <group key={`solid-${z}-${index}`}>
+          <WallPanel
+            args={[xMax - xMin, height, 0.22]}
+            position={[(xMin + xMax) / 2, height / 2, z]}
+            wallMaps={wallMaps}
+            shadowTexture={shadowTexture}
+            shadowFaces={z > 0 ? ['back'] : ['front']}
+          />
+          <CorridorWallWashLight xMin={xMin} xMax={xMax} z={z} baseGlow={baseGlow} />
+        </group>
       ))}
 
       {doorCenters.map((center) => (
-        <mesh key={`lintel-${z}-${center}`} position={[center, (DOOR_HEIGHT + height) / 2, z]} castShadow receiveShadow>
-          <boxGeometry args={[DOOR_HALF * 2, height - DOOR_HEIGHT, 0.22]} />
-          <WallSurfaceMaterial wallMaps={wallMaps} />
-        </mesh>
+        <WallPanel
+          key={`lintel-${z}-${center}`}
+          args={[DOOR_HALF * 2, height - DOOR_HEIGHT, 0.22]}
+          position={[center, (DOOR_HEIGHT + height) / 2, z]}
+          wallMaps={wallMaps}
+          shadowTexture={shadowTexture}
+          shadowFaces={z > 0 ? ['back'] : ['front']}
+        />
       ))}
     </>
   )
@@ -870,7 +1247,7 @@ function DocPanel({ texture, position, size }) {
   )
 }
 
-function CentralLedStage() {
+function CentralLedStage({ baseGlow }) {
   const {
     footprintX,
     footprintZ,
@@ -895,6 +1272,23 @@ function CentralLedStage() {
   const grooveWidthZ = footprintZ - grooveInset * 2
   const stripThickness = 0.028
 
+  // 中央大屏正面（朝入口 +x 侧）的灯光层次：基座前缘通长暖黄线性灯带 +
+  // 顶部金属边框定点漫射高光，向上烘托屏幕、向下洗亮地面，营造悬浮感。
+  const baseStripY = 0.036
+  const baseStripH = 0.022
+  const baseStripT = 0.014
+  const baseFaceOut = 0.006 // 略外凸于基座前面，便于漏光
+  const baseFrontX = footprintX / 2 + baseFaceOut
+
+  const ctl = {
+    glowH: 0.38,
+    floorW: 0.3,
+    floorOut: 0.05,
+    stripInt: 1.75,
+    topInt: 2.15,
+    stripColor: '#ffc466',
+  }
+
   return (
     <group>
       <mesh position={[0, plinthHeight / 2, 0]} castShadow receiveShadow>
@@ -907,6 +1301,44 @@ function CentralLedStage() {
           clearcoatRoughness={0.2}
         />
       </mesh>
+
+      {/* 基座前缘（+x 正面）通长隐藏式暖黄线性灯带（亮核） */}
+      <mesh position={[baseFrontX, baseStripY, 0]}>
+        <boxGeometry args={[baseStripT, baseStripH, footprintZ]} />
+        <meshStandardMaterial
+          color="#ffe09a"
+          emissive={ctl.stripColor}
+          emissiveIntensity={ctl.stripInt}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* 灯带向上下扩散的暖黄光晕：烘托屏幕底部、柔化基座下沿 */}
+      <mesh position={[baseFrontX + 0.004, baseStripY, 0]} rotation={[0, Math.PI / 2, 0]}>
+        <planeGeometry args={[footprintZ, ctl.glowH]} />
+        <meshBasicMaterial
+          map={baseGlow.front}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* 灯带向地面扩散的暖黄光毯 */}
+      <mesh position={[baseFrontX + ctl.floorOut, 0.008, 0]} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[ctl.floorW, footprintZ]} />
+        <meshBasicMaterial
+          map={baseGlow.floor}
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          toneMapped={false}
+        />
+      </mesh>
+
+      {/* 大屏金属上边框顶部定点漫射高光 */}
+      <pointLight position={[0.45, 3.2, 0]} intensity={ctl.topInt} distance={3.2} decay={2} color="#eaf1fb" />
 
       {[
         { position: [0, grooveY, footprintZ / 2 - grooveInset / 2], args: [grooveWidthX, grooveHeight, stripThickness] },
@@ -1054,7 +1486,7 @@ const ROOM_DEPTH = CONFIG.hall.depth / 2 - CORRIDOR_HALF
 const DOOR_HALF = 1.15
 const DOOR_HEIGHT = 2.5
 
-function Room({ hall, wallMaps }) {
+function Room({ hall, wallMaps, shadowTexture }) {
   const { height } = CONFIG.hall
   const width = ROOM_WIDTH
   const depth = ROOM_DEPTH
@@ -1089,10 +1521,13 @@ function Room({ hall, wallMaps }) {
 
   return (
     <group position={position} rotation={[0, rotationY, 0]}>
-      <mesh position={[0, height / 2, depth - 0.1]} receiveShadow castShadow>
-        <boxGeometry args={[width, height, 0.2]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
+      <WallPanel
+        args={[width, height, 0.2]}
+        position={[0, height / 2, depth - 0.1]}
+        wallMaps={wallMaps}
+        shadowTexture={shadowTexture}
+        shadowFaces={['back']}
+      />
 
       <WallBaseTrim width={pierWidth} position={[-(width / 2 + DOOR_HALF) / 2, 0, -0.085]} />
       <WallBaseTrim width={pierWidth} position={[(width / 2 + DOOR_HALF) / 2, 0, -0.085]} />
@@ -1118,7 +1553,10 @@ export function Hall() {
   const { width, depth, height, wallThickness } = CONFIG.hall
   const corridorHalf = CONFIG.hall.corridorHalf ?? 4
   const floorTexture = useFloorTexture()
+
   const floorGuideTexture = useFloorGuideTexture()
+  const baseGlow = useBaseGlowTextures()
+  const wallShadowTexture = useWallFaceShadowTexture()
   const wallMaps = useWallMaterialMaps()
 
   const halfWidth = width / 2
@@ -1136,6 +1574,13 @@ export function Hall() {
         <planeGeometry args={[0.62, 6.04]} />
         <FloorSurfaceMaterial floorTexture={floorTexture} />
       </mesh>
+      <FloorContactShadow position={[-halfWidth + 0.02, 0.012, (-halfDepth + TROPHY_NICHE.zMin) / 2]} rotation={[-Math.PI / 2, 0, 0]} size={[0.18, TROPHY_NICHE.zMin + halfDepth]} opacity={0.06} />
+      <FloorContactShadow position={[-halfWidth + 0.02, 0.012, (halfDepth + TROPHY_NICHE.zMax) / 2]} rotation={[-Math.PI / 2, 0, 0]} size={[0.18, halfDepth - TROPHY_NICHE.zMax]} opacity={0.06} />
+      <FloorContactShadow position={[halfWidth - 0.02, 0.012, (3 + halfDepth) / 2]} rotation={[-Math.PI / 2, 0, 0]} size={[0.18, halfDepth - 3]} opacity={0.06} />
+      <FloorContactShadow position={[halfWidth - 0.02, 0.012, -(3 + halfDepth) / 2]} rotation={[-Math.PI / 2, 0, 0]} size={[0.18, halfDepth - 3]} opacity={0.06} />
+      <FloorContactShadow position={[halfWidth + 0.18, 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]} size={[0.24, 6]} opacity={0.05} />
+      <FloorContactShadow position={[0, 0.012, corridorHalf - 0.02]} rotation={[-Math.PI / 2, 0, 0]} size={[width, 0.18]} opacity={0.045} />
+      <FloorContactShadow position={[0, 0.012, -corridorHalf + 0.02]} rotation={[-Math.PI / 2, 0, 0]} size={[width, 0.18]} opacity={0.045} />
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} renderOrder={1}>
         <planeGeometry args={[width, depth]} />
         <meshBasicMaterial
@@ -1152,47 +1597,77 @@ export function Hall() {
       </mesh>
 
       {/* 后墙：走廊段预留壁龛开口（z∈[zMin,zMax], y∈[yBottom,yTop]），其余分段封墙 */}
-      <mesh position={[-halfWidth, height / 2, (-halfDepth + TROPHY_NICHE.zMin) / 2]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, height, TROPHY_NICHE.zMin + halfDepth]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[-halfWidth, height / 2, (halfDepth + TROPHY_NICHE.zMax) / 2]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, height, halfDepth - TROPHY_NICHE.zMax]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[-halfWidth, (TROPHY_NICHE.yTop + height) / 2, 0]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, height - TROPHY_NICHE.yTop, TROPHY_NICHE.zMax - TROPHY_NICHE.zMin]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[-halfWidth, TROPHY_NICHE.yBottom / 2, 0]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, TROPHY_NICHE.yBottom, TROPHY_NICHE.zMax - TROPHY_NICHE.zMin]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[halfWidth, height / 2, (3 + halfDepth) / 2]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, height, halfDepth - 3]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[halfWidth, height / 2, -(3 + halfDepth) / 2]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, height, halfDepth - 3]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[halfWidth, (3.5 + height) / 2, 0]} receiveShadow castShadow>
-        <boxGeometry args={[wallThickness, height - 3.5, 6]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
+      <WallPanel
+        args={[wallThickness, height, TROPHY_NICHE.zMin + halfDepth]}
+        position={[-halfWidth, height / 2, (-halfDepth + TROPHY_NICHE.zMin) / 2]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['right']}
+      />
+      <WallPanel
+        args={[wallThickness, height, halfDepth - TROPHY_NICHE.zMax]}
+        position={[-halfWidth, height / 2, (halfDepth + TROPHY_NICHE.zMax) / 2]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['right']}
+      />
+      <WallPanel
+        args={[wallThickness, height - TROPHY_NICHE.yTop, TROPHY_NICHE.zMax - TROPHY_NICHE.zMin]}
+        position={[-halfWidth, (TROPHY_NICHE.yTop + height) / 2, 0]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['right']}
+      />
+      <WallPanel
+        args={[wallThickness, TROPHY_NICHE.yBottom, TROPHY_NICHE.zMax - TROPHY_NICHE.zMin]}
+        position={[-halfWidth, TROPHY_NICHE.yBottom / 2, 0]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['right']}
+      />
+      <WallPanel
+        args={[wallThickness, height, halfDepth - 3]}
+        position={[halfWidth, height / 2, (3 + halfDepth) / 2]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['left']}
+      />
+      <WallPanel
+        args={[wallThickness, height, halfDepth - 3]}
+        position={[halfWidth, height / 2, -(3 + halfDepth) / 2]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['left']}
+      />
+      <WallPanel
+        args={[wallThickness, height - 3.5, 6]}
+        position={[halfWidth, (3.5 + height) / 2, 0]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['left']}
+      />
 
-      <mesh position={[halfWidth + 0.3, 1.75, -3]} castShadow receiveShadow>
-        <boxGeometry args={[0.6, 3.5, 0.22]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[halfWidth + 0.3, 1.75, 3]} castShadow receiveShadow>
-        <boxGeometry args={[0.6, 3.5, 0.22]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
-      <mesh position={[halfWidth + 0.3, 3.75, 0]} castShadow receiveShadow>
-        <boxGeometry args={[0.6, 0.5, 6]} />
-        <WallSurfaceMaterial wallMaps={wallMaps} />
-      </mesh>
+      <WallPanel
+        args={[0.6, 3.5, 0.22]}
+        position={[halfWidth + 0.3, 1.75, -3]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['left']}
+      />
+      <WallPanel
+        args={[0.6, 3.5, 0.22]}
+        position={[halfWidth + 0.3, 1.75, 3]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['left']}
+      />
+      <WallPanel
+        args={[0.6, 0.5, 6]}
+        position={[halfWidth + 0.3, 3.75, 0]}
+        wallMaps={wallMaps}
+        shadowTexture={wallShadowTexture}
+        shadowFaces={['left']}
+      />
 
       <DoorFrame
         width={6}
@@ -1204,30 +1679,28 @@ export function Hall() {
       />
 
       {[-dividerX, dividerX].map((x) => (
-        <mesh
+        <WallPanel
           key={`front-${x}`}
           position={[x, height / 2, corridorHalf + roomDepth / 2]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[0.22, height, roomDepth]} />
-          <WallSurfaceMaterial wallMaps={wallMaps} />
-        </mesh>
+          args={[0.22, height, roomDepth]}
+          wallMaps={wallMaps}
+          shadowTexture={wallShadowTexture}
+          shadowFaces={['left', 'right']}
+        />
       ))}
       {[-dividerX, dividerX].map((x) => (
-        <mesh
+        <WallPanel
           key={`back-${x}`}
           position={[x, height / 2, -(corridorHalf + roomDepth / 2)]}
-          castShadow
-          receiveShadow
-        >
-          <boxGeometry args={[0.22, height, roomDepth]} />
-          <WallSurfaceMaterial wallMaps={wallMaps} />
-        </mesh>
+          args={[0.22, height, roomDepth]}
+          wallMaps={wallMaps}
+          shadowTexture={wallShadowTexture}
+          shadowFaces={['left', 'right']}
+        />
       ))}
 
-      <CorridorPortalWalls z={corridorHalf} wallMaps={wallMaps} />
-      <CorridorPortalWalls z={-corridorHalf} wallMaps={wallMaps} />
+      <CorridorPortalWalls z={corridorHalf} wallMaps={wallMaps} baseGlow={baseGlow} shadowTexture={wallShadowTexture} />
+      <CorridorPortalWalls z={-corridorHalf} wallMaps={wallMaps} baseGlow={baseGlow} shadowTexture={wallShadowTexture} />
 
       <CeilingLight position={[0, height - 0.16, 0]} args={[width - 2.4, 0.06, 0.08]} />
       <CeilingLight
@@ -1241,11 +1714,11 @@ export function Hall() {
         args={[corridorHalf * 2 - 1, 0.06, 0.08]}
       />
 
-      <CentralLedStage />
+      <CentralLedStage baseGlow={baseGlow} />
       <SandTable />
 
       {HALLS.map((hall) => (
-        <Room key={hall.id} hall={hall} wallMaps={wallMaps} />
+        <Room key={hall.id} hall={hall} wallMaps={wallMaps} shadowTexture={wallShadowTexture} />
       ))}
     </group>
   )
