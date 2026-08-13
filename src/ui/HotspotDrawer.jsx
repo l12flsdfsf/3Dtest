@@ -1,8 +1,12 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
+import CloseOutlined from '@ant-design/icons/CloseOutlined'
 import { Button, Modal } from 'antd'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { FloorMap } from './FloorMap.jsx'
 import { RAW_FIGMA_EXPORTS } from '../data/assets.js'
+
+const MAP_PANEL_WIDTH = 972
+const MAP_PANEL_HEIGHT = 698
 
 function ContentImage({ hotspot }) {
   const src = hotspot?.scenePreview || hotspot?.assetSrc
@@ -86,58 +90,88 @@ function Facts({ items = [] }) {
 export function HotspotDrawer({ hotspot, onClose, currentHall }) {
   const isMap = hotspot?.kind === 'map'
 
+  useEffect(() => {
+    if (!hotspot || !isMap) return undefined
+
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') onClose()
+    }
+
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [hotspot, isMap, onClose])
+
+  if (hotspot && isMap) {
+    return (
+      <div
+        className="fixed inset-0 z-[1000] flex items-center justify-center bg-[rgba(15,23,42,0.22)] p-4"
+        onClick={onClose}
+      >
+        <div
+          className="relative"
+          style={{
+            width: `min(${MAP_PANEL_WIDTH}px, calc(100vw - 32px), calc((100vh - 32px) * ${MAP_PANEL_WIDTH} / ${MAP_PANEL_HEIGHT}))`,
+            aspectRatio: `${MAP_PANEL_WIDTH} / ${MAP_PANEL_HEIGHT}`,
+          }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <img
+            src={RAW_FIGMA_EXPORTS.cPanel3}
+            alt=""
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-0 h-full w-full"
+          />
+
+          <button
+            type="button"
+            aria-label="关闭"
+            className="absolute right-[18px] top-[18px] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(241,245,249,0.94)] text-slate-700 transition hover:bg-[rgba(226,232,240,0.98)]"
+            onClick={onClose}
+          >
+            <CloseOutlined />
+          </button>
+
+          <div className="absolute left-[5.4%] top-[5.2%] max-w-[60%] text-slate-700">
+            <div className="text-[28px] font-semibold leading-tight text-slate-800">
+              {hotspot.title}
+            </div>
+            <div className="mt-2 text-[14px] leading-6 text-slate-500">{hotspot.subtitle}</div>
+          </div>
+
+          <div className="flex h-full w-full items-center justify-center pt-[6%]">
+            <FloorMap currentHall={currentHall} />
+          </div>
+
+          <div className="pointer-events-none absolute bottom-[8.5%] left-[6.6%] flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.12)] ring-1 ring-slate-200">
+            <span
+              className="rounded-full"
+              style={{
+                width: 'calc(min(48vh, 480px) / 28)',
+                height: 'calc(min(48vh, 480px) / 28)',
+                backgroundColor: '#2563eb',
+                boxShadow: '0 0 0 calc(min(48vh, 480px) * 6 / 280) rgba(37, 99, 235, 0.16)',
+              }}
+            />
+            <span className="text-[14px] font-medium leading-6 text-slate-600">{'\u5f53\u524d\u4f4d\u7f6e'}</span>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <Modal
       open={Boolean(hotspot)}
       onCancel={onClose}
       footer={null}
-      width={isMap ? 960 : 1080}
+      width={1080}
       destroyOnClose
       rootClassName="hotspot-modal"
       title={null}
-      styles={{
-        container: isMap
-          ? {
-              aspectRatio: '5 / 4',
-              backgroundImage: `url(${RAW_FIGMA_EXPORTS.cPanel3})`,
-              backgroundSize: '100% 100%',
-              backgroundRepeat: 'no-repeat',
-            }
-          : undefined,
-        body: isMap ? { height: '100%' } : undefined,
-      }}
+      styles={undefined}
     >
       {hotspot ? (
-        isMap ? (
-          <div className="relative h-full w-full">
-            {/* \u6807\u9898\uff1a\u4e0e\u5e2e\u52a9\u5f39\u7a97\u6807\u9898\u4f4d\u7f6e\u4e00\u81f4\uff08left 5.4% / top 5.2%\uff09\uff0c\u53bb\u6389 MAP\u3001\u5730\u56fe\u89d2\u6807 */}
-            <div className="absolute left-[5.4%] top-[5.2%] max-w-[60%] text-slate-700">
-              <div className="text-[28px] font-semibold leading-tight text-slate-800">
-                {hotspot.title}
-              </div>
-              <div className="mt-2 text-[14px] leading-6 text-slate-500">{hotspot.subtitle}</div>
-            </div>
-
-            {/* \u5730\u56fe\uff1a\u5c45\u4e2d */}
-            <div className="flex h-full w-full items-center justify-center pt-[6%]">
-              <FloorMap currentHall={currentHall} />
-            </div>
-
-            {/* \u5de6\u4e0b\u89d2\u56fe\u4f8b\uff1a\u7f6e\u4e8e\u5361\u7247\u5de6\u4fa7\u767d\u8272\u7559\u767d\u5904\uff0c\u4e0d\u906e\u6321\u5730\u56fe\uff1b\u84dd\u70b9\u5927\u5c0f\u4e0e\u5730\u56fe\u6807\u8bb0\u4e00\u81f4 */}
-            <div className="pointer-events-none absolute bottom-[7%] left-[5.4%] flex items-center gap-1.5 rounded-full bg-white/90 px-2.5 py-1 shadow-[0_2px_8px_rgba(15,23,42,0.12)] ring-1 ring-slate-200">
-              <span
-                className="rounded-full"
-                style={{
-                  width: 'calc(min(48vh, 480px) / 28)',
-                  height: 'calc(min(48vh, 480px) / 28)',
-                  backgroundColor: '#2563eb',
-                  boxShadow: '0 0 0 calc(min(48vh, 480px) * 6 / 280) rgba(37, 99, 235, 0.16)',
-                }}
-              />
-              <span className="text-[11px] font-medium text-slate-600">{'\u5f53\u524d\u4f4d\u7f6e'}</span>
-            </div>
-          </div>
-        ) : (
+        (
           <div className="space-y-6">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="space-y-2">

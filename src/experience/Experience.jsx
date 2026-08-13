@@ -10,7 +10,18 @@ import { AutoRoamCamera } from './AutoRoamCamera.jsx'
 import { TrophyDisplay } from './TrophyDisplay.jsx'
 import { CONFIG } from '../data/config.js'
 
-export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, onLockChange, onFocused, frozen, playerPosRef }) {
+export function Experience({
+  mode,
+  hotspots,
+  onSelect,
+  onSelectTrophy,
+  onReady,
+  onLockChange,
+  onFocused,
+  frozen,
+  playerPosRef,
+  onWorldLayout,
+}) {
   const markersRef = useRef([])
   const collisionWorldRef = useRef(null)
   const isManualRoam = mode === 'roam'
@@ -31,7 +42,15 @@ export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, 
       <Lights />
 
       <Suspense fallback={null}>
-        {usingExternalModel ? <GltfModel url={CONFIG.modelUrl} collisionWorldRef={collisionWorldRef} /> : <Hall />}
+        {usingExternalModel ? (
+          <GltfModel
+            url={CONFIG.modelUrl}
+            collisionWorldRef={collisionWorldRef}
+            onWorldLayout={onWorldLayout}
+          />
+        ) : (
+          <Hall />
+        )}
       </Suspense>
 
       {!usingExternalModel

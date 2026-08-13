@@ -6,6 +6,7 @@ const CORRIDOR_HALF = CONFIG.hall.corridorHalf ?? 4
 const ROOM_WIDTH = CONFIG.hall.width / 3
 const ROOM_DEPTH = CONFIG.hall.depth / 2 - CORRIDOR_HALF
 const ROOM_HALF_X = ROOM_WIDTH / 2
+const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
 
 // 房间内本地坐标锚点：入口在 z=0（朝向中央走廊），后墙在 z=ROOM_DEPTH。
 // “进门右边”取本地 -x 侧墙——前厅朝 +z、后厅朝 -z 进入时，玩家右手方向均为本地 -x。
@@ -32,6 +33,73 @@ export const MODEL_PLINTH_HALF = 0.62
 export function roomToWorld(hall, [lx, ly, lz]) {
   if (hall.wall === 'front') return [hall.center + lx, ly, CORRIDOR_HALF + lz]
   return [hall.center - lx, ly, -CORRIDOR_HALF - lz]
+}
+
+export function getHallWorldWall(hall) {
+  if (!USING_EXTERNAL_MODEL) return hall.wall
+  return hall.wall === 'front' ? 'back' : 'front'
+}
+
+export function normalizeWorldPositionToHallLayout(x, z, worldLayout) {
+  if (!worldLayout) return { x, z }
+
+  const baseHalfWidth = CONFIG.hall.width / 2
+  const baseHalfDepth = CONFIG.hall.depth / 2
+  const sourceHalfWidth = worldLayout.halfWidth || baseHalfWidth
+  const sourceHalfDepth = worldLayout.halfDepth || baseHalfDepth
+  const centerX = worldLayout.centerX ?? 0
+  const centerZ = worldLayout.centerZ ?? 0
+
+  return {
+    x: ((x - centerX) * baseHalfWidth) / sourceHalfWidth,
+    z: ((z - centerZ) * baseHalfDepth) / sourceHalfDepth,
+  }
+}
+
+export function hallAtWorldPosition(x, z, worldLayout) {
+  const corridorHalf = CONFIG.hall.corridorHalf ?? 4
+  const halfWidth = CONFIG.hall.width / 2
+  const roomHalf = CONFIG.hall.width / 6
+  const hallTolerance = 0.6
+  const normalized = normalizeWorldPositionToHallLayout(x, z, worldLayout)
+
+  if (normalized.x > halfWidth - 1 && Math.abs(normalized.z) < 3) {
+    return { id: 'entrance', label: '\u4e3b\u5165\u53e3' }
+  }
+
+  if (Math.abs(normalized.z) <= corridorHalf) {
+    return { id: 'corridor', label: '\u4e2d\u592e\u8d70\u5eca' }
+  }
+
+  const worldWall = normalized.z > 0 ? 'front' : 'back'
+  const mappedHalls = worldLayout?.halls?.length
+    ? worldLayout.halls
+        .map((layoutHall) => {
+          const hall = HALLS.find((item) => item.id === layoutHall.id)
+          if (!hall) return null
+          return {
+            hall,
+            centerX: layoutHall.x,
+            worldWall: layoutHall.z >= 0 ? 'front' : 'back',
+          }
+        })
+        .filter(Boolean)
+    : HALLS.map((hall) => ({
+        hall,
+        centerX: hall.center,
+        worldWall: getHallWorldWall(hall),
+      }))
+
+  const nearest = mappedHalls
+    .filter((item) => item.worldWall === worldWall)
+    .map((item) => ({ hall: item.hall, delta: Math.abs(normalized.x - item.centerX) }))
+    .sort((a, b) => a.delta - b.delta)[0]
+
+  if (!nearest || nearest.delta > roomHalf + hallTolerance) {
+    return { id: 'corridor', label: '\u4e2d\u592e\u8d70\u5eca' }
+  }
+
+  return { id: nearest.hall.id, label: nearest.hall.name }
 }
 
 // 由玩家世界坐标判断当前所处区域（分厅 / 中央走廊 / 主入口），供展厅地图标记当前位置。

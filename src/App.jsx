@@ -2,17 +2,24 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import { message } from 'antd'
 import { Experience } from './experience/Experience.jsx'
 import { HOTSPOTS } from './data/hotspots.js'
-import { hallAtPosition } from './data/halls.js'
-import { FIGMA_ASSETS, RAW_FIGMA_EXPORTS } from './data/assets.js'
+import { hallAtWorldPosition } from './data/halls.js'
+import { RAW_FIGMA_EXPORTS } from './data/assets.js'
 import { TopBar } from './ui/TopBar.jsx'
 import { HotspotDrawer } from './ui/HotspotDrawer.jsx'
 import { HelpOverlay } from './ui/RoamOverlay.jsx'
 import { HelpBar } from './ui/Hud.jsx'
 import { TrophyModal } from './ui/TrophyModal.jsx'
 
+const INITIAL_MAP_HALL = {
+  id: 'corridor',
+  label: '\u4e2d\u592e\u8d70\u5eca',
+}
+
 export default function App() {
   const controlsRef = useRef(null)
   const resumeModeRef = useRef('roam')
+  const playerPosRef = useRef({ x: 10, z: 0 })
+  const worldLayoutRef = useRef(null)
   const [mode, setMode] = useState('roam')
   const [selected, setSelected] = useState(null)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -20,10 +27,8 @@ export default function App() {
   const [focused, setFocused] = useState(null)
   const [musicEnabled, setMusicEnabled] = useState(false)
   const [trophy, setTrophy] = useState(null)
-  const playerPosRef = useRef({ x: 10, z: 0 })
-  const [mapHall, setMapHall] = useState({ id: 'corridor', label: '中央走廊' })
+  const [mapHall, setMapHall] = useState(INITIAL_MAP_HALL)
 
-  // 抽屉/帮助/奖杯弹窗打开时冻结相机：不挂 OrbitControls、暂停漫游，避免视角跳回原点
   const frozen = Boolean(selected) || helpOpen || Boolean(trophy)
 
   const mapPanel = useMemo(
@@ -125,6 +130,7 @@ export default function App() {
       resumePreviousMode()
       return
     }
+
     pauseRoam('inspect')
     setSelected(null)
     setHelpOpen(true)
@@ -135,9 +141,11 @@ export default function App() {
       resumePreviousMode()
       return
     }
-    // 打开地图时取一次玩家位置快照，标出当前所在分厅（非实时跟踪）。
+
     const { x, z } = playerPosRef.current
-    setMapHall(hallAtPosition(x, z))
+    const worldLayout = worldLayoutRef.current
+
+    setMapHall(hallAtWorldPosition(x, z, worldLayout))
     pauseRoam('inspect')
     setHelpOpen(false)
     setSelected(mapPanel)
@@ -187,6 +195,12 @@ export default function App() {
     setMode('inspect')
   }, [])
 
+  const handleWorldLayout = useCallback((layout) => {
+    worldLayoutRef.current = layout
+
+    setMapHall((prev) => prev)
+  }, [])
+
   return (
     <div className="relative h-full w-full overflow-hidden bg-[#ebe5dc]">
       <Experience
@@ -201,6 +215,7 @@ export default function App() {
         onFocused={setFocused}
         frozen={frozen}
         playerPosRef={playerPosRef}
+        onWorldLayout={handleWorldLayout}
       />
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.04),transparent_24%)]" />
