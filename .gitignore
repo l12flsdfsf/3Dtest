@@ -37,3 +37,9 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+
+# Local-only assets
+public/models/scene.gltf
+
+# Local agent output
+.codex/

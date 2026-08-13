@@ -26,7 +26,7 @@ export const CONFIG = {
     speed: 5.2,
     runMultiplier: 1.75,
   },
-  modelUrl: null,
+  modelUrl: '/models/scene.gltf',
   autoRoam: {
     loop: true,
     speed: 1.25,

@@ -8,6 +8,7 @@ const LOOK_SENSITIVITY = 0.0024
 const MAX_PITCH = Math.PI / 2 - 0.05
 const PLAYER_RADIUS = 0.35
 const DOOR_HALF = 1.15
+const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
 
 const _forward = new THREE.Vector3()
 const _right = new THREE.Vector3()
@@ -57,7 +58,7 @@ function buildCollisionWalls() {
   return walls
 }
 
-const COLLISION_WALLS = buildCollisionWalls()
+const COLLISION_WALLS = USING_EXTERNAL_MODEL ? [] : buildCollisionWalls()
 
 function hitsWall(x, z) {
   const r2 = PLAYER_RADIUS * PLAYER_RADIUS
@@ -239,10 +240,12 @@ export function Player({ active, onReady, onLockChange, onFocused, markersRef, o
       if (!hitsWall(camera.position.x, nextZ)) camera.position.z = nextZ
     }
 
-    const halfWidth = CONFIG.hall.width / 2 - 0.9
-    const halfDepth = CONFIG.hall.depth / 2 - 0.9
-    camera.position.x = THREE.MathUtils.clamp(camera.position.x, -halfWidth, halfWidth)
-    camera.position.z = THREE.MathUtils.clamp(camera.position.z, -halfDepth, halfDepth)
+    if (!USING_EXTERNAL_MODEL) {
+      const halfWidth = CONFIG.hall.width / 2 - 0.9
+      const halfDepth = CONFIG.hall.depth / 2 - 0.9
+      camera.position.x = THREE.MathUtils.clamp(camera.position.x, -halfWidth, halfWidth)
+      camera.position.z = THREE.MathUtils.clamp(camera.position.z, -halfDepth, halfDepth)
+    }
     camera.position.y = eyeHeight
 
     raycaster.current.setFromCamera(_center, camera)

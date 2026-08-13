@@ -15,6 +15,7 @@ export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, 
   const isManualRoam = mode === 'roam'
   const isAutoRoam = mode === 'auto'
   const isInspect = mode === 'inspect'
+  const usingExternalModel = Boolean(CONFIG.modelUrl)
 
   return (
     <Canvas
@@ -29,14 +30,16 @@ export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, 
       <Lights />
 
       <Suspense fallback={null}>
-        {CONFIG.modelUrl ? <GltfModel url={CONFIG.modelUrl} /> : <Hall />}
+        {usingExternalModel ? <GltfModel url={CONFIG.modelUrl} /> : <Hall />}
       </Suspense>
 
-      {hotspots.map((hotspot) => (
-        <Hotspot key={hotspot.id} data={hotspot} markersRef={markersRef} onSelect={onSelect} />
-      ))}
+      {!usingExternalModel
+        ? hotspots.map((hotspot) => (
+            <Hotspot key={hotspot.id} data={hotspot} markersRef={markersRef} onSelect={onSelect} />
+          ))
+        : null}
 
-      <TrophyDisplay onSelectTrophy={onSelectTrophy} />
+      {!usingExternalModel ? <TrophyDisplay onSelectTrophy={onSelectTrophy} /> : null}
 
       <Player
         active={isManualRoam && !frozen}
