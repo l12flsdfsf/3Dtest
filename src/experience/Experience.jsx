@@ -12,6 +12,7 @@ import { CONFIG } from '../data/config.js'
 
 export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, onLockChange, onFocused, frozen, playerPosRef }) {
   const markersRef = useRef([])
+  const collisionWorldRef = useRef(null)
   const isManualRoam = mode === 'roam'
   const isAutoRoam = mode === 'auto'
   const isInspect = mode === 'inspect'
@@ -30,7 +31,7 @@ export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, 
       <Lights />
 
       <Suspense fallback={null}>
-        {usingExternalModel ? <GltfModel url={CONFIG.modelUrl} /> : <Hall />}
+        {usingExternalModel ? <GltfModel url={CONFIG.modelUrl} collisionWorldRef={collisionWorldRef} /> : <Hall />}
       </Suspense>
 
       {!usingExternalModel
@@ -49,6 +50,7 @@ export function Experience({ mode, hotspots, onSelect, onSelectTrophy, onReady, 
         markersRef={markersRef}
         onSelect={onSelect}
         playerPosRef={playerPosRef}
+        collisionWorldRef={collisionWorldRef}
       />
 
       {isAutoRoam && !frozen ? <AutoRoamCamera onFocused={onFocused} /> : null}
