@@ -1,18 +1,151 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
 import { Octree } from 'three/examples/jsm/math/Octree.js'
 import { CONFIG } from '../data/config.js'
-import { HALLS } from '../data/halls.js'
+import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
+
+function listMaterialNames(material) {
+  if (!material) return []
+  const materials = Array.isArray(material) ? material : [material]
+  return materials
+    .map((item) => (typeof item?.name === 'string' ? item.name.trim() : ''))
+    .filter(Boolean)
+}
+
+function objectNameMatchesHall(object, hallName) {
+  const objectName = typeof object?.name === 'string' ? object.name.trim() : ''
+  if (objectName.startsWith(hallName) || objectName.includes(hallName)) return true
+
+  const userDataName = typeof object?.userData?.name === 'string' ? object.userData.name.trim() : ''
+  if (userDataName.startsWith(hallName) || userDataName.includes(hallName)) return true
+
+  return false
+}
+
+function objectMaterialMatchesHall(object, hallName) {
+  return listMaterialNames(object?.material).some((name) => name.includes(hallName))
+}
+
+function solveLinear3(system, values) {
+  const matrix = system.map((row, index) => [...row, values[index]])
+  const size = matrix.length
+
+  for (let pivot = 0; pivot < size; pivot += 1) {
+    let best = pivot
+    for (let row = pivot + 1; row < size; row += 1) {
+      if (Math.abs(matrix[row][pivot]) > Math.abs(matrix[best][pivot])) best = row
+    }
+
+    if (Math.abs(matrix[best][pivot]) < 1e-8) return null
+    if (best !== pivot) [matrix[pivot], matrix[best]] = [matrix[best], matrix[pivot]]
+
+    const factor = matrix[pivot][pivot]
+    for (let column = pivot; column <= size; column += 1) {
+      matrix[pivot][column] /= factor
+    }
+
+    for (let row = 0; row < size; row += 1) {
+      if (row === pivot) continue
+      const scale = matrix[row][pivot]
+      if (Math.abs(scale) < 1e-8) continue
+
+      for (let column = pivot; column <= size; column += 1) {
+        matrix[row][column] -= scale * matrix[pivot][column]
+      }
+    }
+  }
+
+  return matrix.map((row) => row[size])
+}
+
+function determinant3(rows) {
+  const [[a, b, c], [d, e, f], [g, h, i]] = rows
+  return a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+}
+
+function buildLayoutTransform(hallBoxes) {
+  if (hallBoxes.length < 3) return null
+
+  const pairs = hallBoxes
+    .map((layoutHall) => {
+      const hall = HALLS.find((item) => item.id === layoutHall.id)
+      if (!hall) return null
+
+      const canonical = getHallCanonicalCenter(hall)
+      return {
+        world: [layoutHall.centerX, layoutHall.centerZ, 1],
+        canonical,
+      }
+    })
+    .filter(Boolean)
+
+  if (pairs.length < 3) return null
+
+  let triplet = null
+  let bestDeterminant = 0
+
+  for (let i = 0; i < pairs.length - 2; i += 1) {
+    for (let j = i + 1; j < pairs.length - 1; j += 1) {
+      for (let k = j + 1; k < pairs.length; k += 1) {
+        const candidate = [pairs[i], pairs[j], pairs[k]]
+        const determinant = Math.abs(determinant3(candidate.map((pair) => pair.world)))
+        if (determinant > bestDeterminant) {
+          bestDeterminant = determinant
+          triplet = candidate
+        }
+      }
+    }
+  }
+
+  if (!triplet || bestDeterminant < 1e-8) return null
+
+  const system = triplet.map((pair) => pair.world)
+  const xValues = triplet.map((pair) => pair.canonical.x)
+  const zValues = triplet.map((pair) => pair.canonical.z)
+  const xCoefficients = solveLinear3(system, xValues)
+  const zCoefficients = solveLinear3(system, zValues)
+
+  if (!xCoefficients || !zCoefficients) return null
+
+  const projectionError = pairs.reduce((max, pair) => {
+    const mappedX =
+      xCoefficients[0] * pair.world[0] + xCoefficients[1] * pair.world[1] + xCoefficients[2]
+    const mappedZ =
+      zCoefficients[0] * pair.world[0] + zCoefficients[1] * pair.world[1] + zCoefficients[2]
+    const dx = Math.abs(mappedX - pair.canonical.x)
+    const dz = Math.abs(mappedZ - pair.canonical.z)
+    return Math.max(max, dx, dz)
+  }, 0)
+
+  if (projectionError > 2.5) return null
+
+  return {
+    x: xCoefficients,
+    z: zCoefficients,
+  }
+}
 
 function buildWorldLayout(scene) {
   const hallBoxes = HALLS.map((hall) => {
-    const matches = []
+    const nameMatches = []
     scene.traverse((object) => {
       if (object === scene) return
-      if (typeof object.name !== 'string' || !object.name.startsWith(hall.name)) return
-      matches.push(object)
+      if (!objectNameMatchesHall(object, hall.name)) return
+      nameMatches.push(object)
     })
+
+    const matches = nameMatches.length
+      ? nameMatches
+      : (() => {
+          const materialMatches = []
+          scene.traverse((object) => {
+            if (object === scene) return
+            if (!objectMaterialMatchesHall(object, hall.name)) return
+            materialMatches.push(object)
+          })
+          return materialMatches
+        })()
 
     if (!matches.length) return null
 
@@ -35,10 +168,16 @@ function buildWorldLayout(scene) {
       centerZ: center.z,
       sizeX: size.x,
       sizeZ: size.z,
+      worldMinX: box.min.x,
+      worldMaxX: box.max.x,
+      worldMinZ: box.min.z,
+      worldMaxZ: box.max.z,
     }
   }).filter(Boolean)
 
   if (hallBoxes.length < 4) return null
+
+  const transform = buildLayoutTransform(hallBoxes)
 
   const baseHalfWidth = CONFIG.hall.width / 2
   const baseHalfDepth = CONFIG.hall.depth / 2
@@ -56,34 +195,65 @@ function buildWorldLayout(scene) {
     centerZ,
     halfWidth,
     halfDepth,
-    halls: hallBoxes.map((hall) => ({
-      id: hall.id,
-      name: hall.name,
-      x: ((hall.centerX - centerX) * baseHalfWidth) / halfWidth,
-      z: ((hall.centerZ - centerZ) * baseHalfDepth) / halfDepth,
-      sizeX: (hall.sizeX * baseHalfWidth) / halfWidth,
-      sizeZ: (hall.sizeZ * baseHalfDepth) / halfDepth,
-    })),
+    transform,
+    halls: hallBoxes.map((hall) => {
+      const mapped = transform
+        ? {
+            x: transform.x[0] * hall.centerX + transform.x[1] * hall.centerZ + transform.x[2],
+            z: transform.z[0] * hall.centerX + transform.z[1] * hall.centerZ + transform.z[2],
+          }
+        : {
+            x: ((hall.centerX - centerX) * baseHalfWidth) / halfWidth,
+            z: ((hall.centerZ - centerZ) * baseHalfDepth) / halfDepth,
+          }
+
+      return {
+        id: hall.id,
+        name: hall.name,
+        x: mapped.x,
+        z: mapped.z,
+        sizeX: (hall.sizeX * baseHalfWidth) / halfWidth,
+        sizeZ: (hall.sizeZ * baseHalfDepth) / halfDepth,
+        worldMinX: hall.worldMinX,
+        worldMaxX: hall.worldMaxX,
+        worldMinZ: hall.worldMinZ,
+        worldMaxZ: hall.worldMaxZ,
+      }
+    }),
   }
+}
+
+const sceneAnalysisCache = new WeakMap()
+
+function getSceneAnalysis(scene) {
+  const cached = sceneAnalysisCache.get(scene)
+  if (cached) return cached
+
+  scene.updateMatrixWorld(true)
+  const analysis = {
+    collisionWorld: new Octree().fromGraphNode(scene),
+    worldLayout: buildWorldLayout(scene),
+  }
+  sceneAnalysisCache.set(scene, analysis)
+  return analysis
 }
 
 export function GltfModel({ url, collisionWorldRef, onWorldLayout }) {
   const { scene } = useGLTF(url)
+  const analysis = useMemo(() => getSceneAnalysis(scene), [scene])
 
   useEffect(() => {
     if (!collisionWorldRef) return undefined
 
-    scene.updateMatrixWorld(true)
-    const collisionWorld = new Octree().fromGraphNode(scene)
-    collisionWorldRef.current = collisionWorld
-    onWorldLayout?.(buildWorldLayout(scene))
+    collisionWorldRef.current = analysis.collisionWorld
+    onWorldLayout?.(analysis.worldLayout)
 
     return () => {
-      if (collisionWorldRef.current === collisionWorld) {
+      if (collisionWorldRef.current === analysis.collisionWorld) {
         collisionWorldRef.current = null
       }
     }
-  }, [collisionWorldRef, onWorldLayout, scene])
+  }, [analysis, collisionWorldRef, onWorldLayout])
 
   return <primitive object={scene} />
 }

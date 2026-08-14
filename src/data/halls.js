@@ -6,7 +6,10 @@ const CORRIDOR_HALF = CONFIG.hall.corridorHalf ?? 4
 const ROOM_WIDTH = CONFIG.hall.width / 3
 const ROOM_DEPTH = CONFIG.hall.depth / 2 - CORRIDOR_HALF
 const ROOM_HALF_X = ROOM_WIDTH / 2
+const ROOM_CENTER_Z = CORRIDOR_HALF + ROOM_DEPTH / 2
 const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
+const CORRIDOR_HALL = { id: 'corridor', label: '中央走廊' }
+const ENTRANCE_HALL = { id: 'entrance', label: '主入口' }
 
 // 房间内本地坐标锚点：入口在 z=0（朝向中央走廊），后墙在 z=ROOM_DEPTH。
 // “进门右边”取本地 -x 侧墙——前厅朝 +z、后厅朝 -z 进入时，玩家右手方向均为本地 -x。
@@ -40,7 +43,36 @@ export function getHallWorldWall(hall) {
   return hall.wall === 'front' ? 'back' : 'front'
 }
 
+export function getHallCanonicalCenter(hall) {
+  return {
+    x: hall.center,
+    z: getHallWorldWall(hall) === 'front' ? ROOM_CENTER_Z : -ROOM_CENTER_Z,
+  }
+}
+
+function applyLayoutTransform(x, z, transform) {
+  const xCoefficients = transform?.x
+  const zCoefficients = transform?.z
+
+  if (
+    !Array.isArray(xCoefficients) ||
+    xCoefficients.length !== 3 ||
+    !Array.isArray(zCoefficients) ||
+    zCoefficients.length !== 3
+  ) {
+    return null
+  }
+
+  return {
+    x: xCoefficients[0] * x + xCoefficients[1] * z + xCoefficients[2],
+    z: zCoefficients[0] * x + zCoefficients[1] * z + zCoefficients[2],
+  }
+}
+
 export function normalizeWorldPositionToHallLayout(x, z, worldLayout) {
+  const transformed = applyLayoutTransform(x, z, worldLayout?.transform)
+  if (transformed) return transformed
+
   if (!worldLayout) return { x, z }
 
   const baseHalfWidth = CONFIG.hall.width / 2
@@ -56,7 +88,48 @@ export function normalizeWorldPositionToHallLayout(x, z, worldLayout) {
   }
 }
 
+function hallFromWorldBounds(x, z, worldLayout) {
+  const boundPadding = 0.85
+  const matchedHall = (worldLayout?.halls ?? [])
+    .map((layoutHall) => {
+      const hall = HALLS.find((item) => item.id === layoutHall.id)
+      if (!hall) return null
+
+      const minX = layoutHall.worldMinX
+      const maxX = layoutHall.worldMaxX
+      const minZ = layoutHall.worldMinZ
+      const maxZ = layoutHall.worldMaxZ
+
+      if (![minX, maxX, minZ, maxZ].every(Number.isFinite)) return null
+      if (
+        x < minX - boundPadding ||
+        x > maxX + boundPadding ||
+        z < minZ - boundPadding ||
+        z > maxZ + boundPadding
+      ) {
+        return null
+      }
+
+      const halfX = Math.max((maxX - minX) / 2, 0.001)
+      const halfZ = Math.max((maxZ - minZ) / 2, 0.001)
+      const dx = Math.abs(x - (minX + maxX) / 2)
+      const dz = Math.abs(z - (minZ + maxZ) / 2)
+
+      return {
+        hall,
+        score: Math.max(dx / (halfX + boundPadding), dz / (halfZ + boundPadding)),
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.score - b.score)[0]
+
+  return matchedHall ? { id: matchedHall.hall.id, label: matchedHall.hall.name } : null
+}
+
 export function hallAtWorldPosition(x, z, worldLayout) {
+  const matchedHall = hallFromWorldBounds(x, z, worldLayout)
+  if (matchedHall) return matchedHall
+
   const corridorHalf = CONFIG.hall.corridorHalf ?? 4
   const halfWidth = CONFIG.hall.width / 2
   const roomHalf = CONFIG.hall.width / 6
@@ -64,11 +137,11 @@ export function hallAtWorldPosition(x, z, worldLayout) {
   const normalized = normalizeWorldPositionToHallLayout(x, z, worldLayout)
 
   if (normalized.x > halfWidth - 1 && Math.abs(normalized.z) < 3) {
-    return { id: 'entrance', label: '\u4e3b\u5165\u53e3' }
+    return ENTRANCE_HALL
   }
 
   if (Math.abs(normalized.z) <= corridorHalf) {
-    return { id: 'corridor', label: '\u4e2d\u592e\u8d70\u5eca' }
+    return CORRIDOR_HALL
   }
 
   const worldWall = normalized.z > 0 ? 'front' : 'back'
@@ -96,7 +169,7 @@ export function hallAtWorldPosition(x, z, worldLayout) {
     .sort((a, b) => a.delta - b.delta)[0]
 
   if (!nearest || nearest.delta > roomHalf + hallTolerance) {
-    return { id: 'corridor', label: '\u4e2d\u592e\u8d70\u5eca' }
+    return CORRIDOR_HALL
   }
 
   return { id: nearest.hall.id, label: nearest.hall.name }
@@ -105,16 +178,15 @@ export function hallAtWorldPosition(x, z, worldLayout) {
 // 由玩家世界坐标判断当前所处区域（分厅 / 中央走廊 / 主入口），供展厅地图标记当前位置。
 export function hallAtPosition(x, z) {
   const corridorHalf = CONFIG.hall.corridorHalf ?? 4
-  const halfDepth = CONFIG.hall.depth / 2
   const halfWidth = CONFIG.hall.width / 2
   const roomHalf = CONFIG.hall.width / 6
 
-  if (x > halfWidth - 1 && Math.abs(z) < 3) return { id: 'entrance', label: '主入口' }
-  if (Math.abs(z) <= corridorHalf) return { id: 'corridor', label: '中央走廊' }
+  if (x > halfWidth - 1 && Math.abs(z) < 3) return ENTRANCE_HALL
+  if (Math.abs(z) <= corridorHalf) return CORRIDOR_HALL
 
   const wall = z > 0 ? 'front' : 'back'
   const hall = HALLS.find((h) => h.wall === wall && Math.abs(x - h.center) <= roomHalf)
-  return hall ? { id: hall.id, label: hall.name } : { id: 'corridor', label: '中央走廊' }
+  return hall ? { id: hall.id, label: hall.name } : CORRIDOR_HALL
 }
 
 // 六大篇章展厅。image 复用现有 Figma 导出作为抽屉预览占位图。

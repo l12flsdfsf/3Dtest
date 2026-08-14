@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { message } from 'antd'
 import { Experience } from './experience/Experience.jsx'
 import { HOTSPOTS } from './data/hotspots.js'
@@ -7,19 +7,26 @@ import { RAW_FIGMA_EXPORTS } from './data/assets.js'
 import { TopBar } from './ui/TopBar.jsx'
 import { HotspotDrawer } from './ui/HotspotDrawer.jsx'
 import { HelpOverlay } from './ui/RoamOverlay.jsx'
-import { HelpBar } from './ui/Hud.jsx'
 import { TrophyModal } from './ui/TrophyModal.jsx'
 
 const INITIAL_MAP_HALL = {
   id: 'corridor',
   label: '\u4e2d\u592e\u8d70\u5eca',
+  worldLayout: null,
 }
+
+const PANEL_ASSETS_TO_PRELOAD = [
+  RAW_FIGMA_EXPORTS.cPanel,
+  RAW_FIGMA_EXPORTS.cPanel1,
+  RAW_FIGMA_EXPORTS.cPanel3,
+].filter(Boolean)
 
 export default function App() {
   const controlsRef = useRef(null)
   const resumeModeRef = useRef('roam')
   const playerPosRef = useRef({ x: 10, z: 0 })
   const worldLayoutRef = useRef(null)
+  const mapOpenRef = useRef(false)
   const [mode, setMode] = useState('roam')
   const [selected, setSelected] = useState(null)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -30,6 +37,22 @@ export default function App() {
   const [mapHall, setMapHall] = useState(INITIAL_MAP_HALL)
 
   const frozen = Boolean(selected) || helpOpen || Boolean(trophy)
+  mapOpenRef.current = selected?.id === 'hall-map'
+
+  useEffect(() => {
+    const images = PANEL_ASSETS_TO_PRELOAD.map((src) => {
+      const image = new Image()
+      image.decoding = 'async'
+      image.src = src
+      return image
+    })
+
+    return () => {
+      images.forEach((image) => {
+        image.src = ''
+      })
+    }
+  }, [])
 
   const mapPanel = useMemo(
     () => ({
@@ -145,7 +168,10 @@ export default function App() {
     const { x, z } = playerPosRef.current
     const worldLayout = worldLayoutRef.current
 
-    setMapHall(hallAtWorldPosition(x, z, worldLayout))
+    setMapHall({
+      ...hallAtWorldPosition(x, z, worldLayout),
+      worldLayout,
+    })
     pauseRoam('inspect')
     setHelpOpen(false)
     setSelected(mapPanel)
@@ -198,7 +224,17 @@ export default function App() {
   const handleWorldLayout = useCallback((layout) => {
     worldLayoutRef.current = layout
 
-    setMapHall((prev) => prev)
+    setMapHall((prev) => {
+      if (!mapOpenRef.current) {
+        return prev.worldLayout === layout ? prev : { ...prev, worldLayout: layout }
+      }
+
+      const { x, z } = playerPosRef.current
+      return {
+        ...hallAtWorldPosition(x, z, layout),
+        worldLayout: layout,
+      }
+    })
   }, [])
 
   return (
@@ -231,8 +267,6 @@ export default function App() {
         onMusic={toggleMusic}
         onExit={exitExperience}
       />
-
-      <HelpBar mode={mode} locked={locked} />
 
       <HelpOverlay open={helpOpen} onClose={resumePreviousMode} autoActive={mode === 'auto'} />
       <HotspotDrawer hotspot={selected} currentHall={mapHall} onClose={closeDrawer} />
