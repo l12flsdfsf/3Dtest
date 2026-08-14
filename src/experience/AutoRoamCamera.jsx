@@ -12,6 +12,7 @@ import {
 const _desiredPosition = new THREE.Vector3()
 const _desiredTarget = new THREE.Vector3()
 const _interpolatedTarget = new THREE.Vector3()
+const _previewTarget = new THREE.Vector3()
 const _smoothedPosition = new THREE.Vector3()
 const _movementDelta = new THREE.Vector3()
 const _movementStep = new THREE.Vector3()
@@ -55,6 +56,22 @@ function getCurveProgress(progress) {
   return 1 / 3 + progress / 3
 }
 
+function getApproachTurnWeight(route, index, nextIndex, progress) {
+  const frame = route[index]
+  const nextFrame = route[nextIndex]
+
+  if (frame?.targetMode !== 'forward' || !nextFrame || nextFrame.targetMode === 'forward') {
+    return 0
+  }
+
+  const start = frame.approachTurnStart ?? CONFIG.autoRoam.approachTurnStart ?? 0.18
+  const end = frame.approachTurnEnd ?? CONFIG.autoRoam.approachTurnEnd ?? 0.82
+  const range = Math.max(end - start, 1e-5)
+  const t = THREE.MathUtils.clamp((progress - start) / range, 0, 1)
+
+  return t * t * (3 - 2 * t)
+}
+
 function sampleSegmentPosition(route, index, nextIndex, progress, output) {
   if (!useCurveSegment(route, index, nextIndex)) {
     return output.lerpVectors(route[index].position, route[nextIndex].position, progress)
@@ -73,8 +90,27 @@ function sampleSegmentDirection(route, index, nextIndex, progress, output) {
   return _segmentCurve.getTangent(getCurveProgress(progress), output)
 }
 
+function resolveForwardPreviewTarget(route, index, output) {
+  const nextIndex = index + 1 < route.length ? index + 1 : 0
+
+  output.copy(route[index].position)
+  sampleSegmentDirection(route, index, nextIndex, 0, _forwardDirection)
+
+  if (_forwardDirection.lengthSq() < 1e-6) {
+    _forwardDirection.subVectors(route[nextIndex].position, route[index].position)
+  }
+
+  if (_forwardDirection.lengthSq() > 1e-6) {
+    _forwardDirection.normalize().multiplyScalar(route[index].lookDistance ?? 4.8)
+    output.add(_forwardDirection)
+  }
+
+  return output
+}
+
 function resolveFrameTarget(route, index, nextIndex, progress, position, fallbackTarget) {
   const frame = route[index]
+  const approachTurnWeight = getApproachTurnWeight(route, index, nextIndex, progress)
 
   if (frame.targetMode === 'forward') {
     sampleSegmentDirection(route, index, nextIndex, progress, _forwardDirection)
@@ -84,7 +120,13 @@ function resolveFrameTarget(route, index, nextIndex, progress, position, fallbac
 
     if (_forwardDirection.lengthSq() > 1e-6) {
       _forwardDirection.normalize().multiplyScalar(frame.lookDistance ?? 4.8)
-      return _desiredTarget.copy(position).add(_forwardDirection)
+      _desiredTarget.copy(position).add(_forwardDirection)
+
+      if (approachTurnWeight > 0) {
+        _desiredTarget.lerp(route[nextIndex].target, approachTurnWeight)
+      }
+
+      return _desiredTarget
     }
   }
 
@@ -171,7 +213,12 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
         if (route[index].targetMode === 'forward') {
           resolveFrameTarget(route, index, nextIndex, progress, _desiredPosition, route[index].target)
         } else {
-          _interpolatedTarget.lerpVectors(route[index].target, route[nextIndex].target, progress)
+          const nextTarget =
+            route[nextIndex].targetMode === 'forward'
+              ? resolveForwardPreviewTarget(route, nextIndex, _previewTarget)
+              : route[nextIndex].target
+
+          _interpolatedTarget.lerpVectors(route[index].target, nextTarget, progress)
           _desiredTarget.copy(_interpolatedTarget)
         }
       }
@@ -180,6 +227,8 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
     currentIndexRef.current = index
     segmentProgressRef.current = progress
     pauseRemainingRef.current = pauseRemaining
+
+    const approachTurnWeight = getApproachTurnWeight(route, index, nextIndex, progress)
 
     const positionAlpha = getDampAlpha(CONFIG.autoRoam.positionSharpness ?? 7.5, delta)
     _smoothedPosition.lerpVectors(travelPositionRef.current, _desiredPosition, positionAlpha)
@@ -204,10 +253,20 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
     }
 
     camera.position.copy(travelPositionRef.current)
-    lookTargetRef.current.lerp(_desiredTarget, getDampAlpha(CONFIG.autoRoam.targetSharpness ?? 3.2, delta))
+    const targetSharpness = THREE.MathUtils.lerp(
+      CONFIG.autoRoam.targetSharpness ?? 3.2,
+      CONFIG.autoRoam.approachTargetSharpness ?? 4.6,
+      approachTurnWeight,
+    )
+    lookTargetRef.current.lerp(_desiredTarget, getDampAlpha(targetSharpness, delta))
     _lookMatrix.lookAt(camera.position, lookTargetRef.current, camera.up)
     _desiredQuaternion.setFromRotationMatrix(_lookMatrix)
-    camera.quaternion.rotateTowards(_desiredQuaternion, (CONFIG.autoRoam.maxTurnSpeed ?? 0.72) * delta)
+    const maxTurnSpeed = THREE.MathUtils.lerp(
+      CONFIG.autoRoam.maxTurnSpeed ?? 0.72,
+      CONFIG.autoRoam.approachMaxTurnSpeed ?? 0.84,
+      approachTurnWeight,
+    )
+    camera.quaternion.rotateTowards(_desiredQuaternion, maxTurnSpeed * delta)
 
     if (playerPosRef?.current) {
       playerPosRef.current.x = camera.position.x

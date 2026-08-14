@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CONFIG } from '../data/config.js'
+import { getAutoRoamStartPose } from '../data/autoRoam.js'
 import { HALLS, LOCAL_ANCHORS, roomToWorld, MODEL_PLINTH_HALF } from '../data/halls.js'
 import {
   COLLISION_STEP,
@@ -83,7 +84,17 @@ function resolveExternalCollision(camera, collisionWorldRef, eyeHeight, collisio
   resolveExternalCollisionPosition(camera.position, collisionWorldRef, eyeHeight, collisionCapsule)
 }
 
-export function Player({ active, onReady, onLockChange, onFocused, markersRef, onSelect, playerPosRef, collisionWorldRef }) {
+export function Player({
+  active,
+  onReady,
+  onLockChange,
+  onFocused,
+  markersRef,
+  onSelect,
+  playerPosRef,
+  collisionWorldRef,
+  worldLayout,
+}) {
   const { camera, gl } = useThree()
   const move = useRef({ f: 0, b: 0, l: 0, r: 0, run: false })
   const raycaster = useRef(new THREE.Raycaster())
@@ -95,6 +106,34 @@ export function Player({ active, onReady, onLockChange, onFocused, markersRef, o
   const draggingRef = useRef(false)
   const lastPointer = useRef({ x: 0, y: 0 })
   const euler = useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
+  const spawnPositionRef = useRef(null)
+  const spawnWorldLayoutRef = useRef(undefined)
+  const hasInteractedSinceSpawnRef = useRef(false)
+
+  const applySpawnPose = useCallback(
+    (layout) => {
+      const { position, target } = getAutoRoamStartPose(layout)
+
+      camera.up.set(0, 1, 0)
+      camera.position.copy(position)
+
+      if (USING_EXTERNAL_MODEL) {
+        resolveExternalCollision(camera, collisionWorldRef, CONFIG.player.eyeHeight, collisionCapsule.current)
+      }
+
+      camera.lookAt(target)
+      euler.current.setFromQuaternion(camera.quaternion)
+      spawnPositionRef.current = camera.position.clone()
+      spawnWorldLayoutRef.current = layout
+      hasInteractedSinceSpawnRef.current = false
+
+      if (playerPosRef) {
+        playerPosRef.current.x = camera.position.x
+        playerPosRef.current.z = camera.position.z
+      }
+    },
+    [camera, collisionWorldRef, playerPosRef],
+  )
 
   const setRoaming = useCallback(
     (value) => {
@@ -122,18 +161,22 @@ export function Player({ active, onReady, onLockChange, onFocused, markersRef, o
       switch (code) {
         case 'KeyW':
         case 'ArrowUp':
+          if (value) hasInteractedSinceSpawnRef.current = true
           move.current.f = value ? 1 : 0
           break
         case 'KeyS':
         case 'ArrowDown':
+          if (value) hasInteractedSinceSpawnRef.current = true
           move.current.b = value ? 1 : 0
           break
         case 'KeyA':
         case 'ArrowLeft':
+          if (value) hasInteractedSinceSpawnRef.current = true
           move.current.l = value ? 1 : 0
           break
         case 'KeyD':
         case 'ArrowRight':
+          if (value) hasInteractedSinceSpawnRef.current = true
           move.current.r = value ? 1 : 0
           break
         case 'ShiftLeft':
@@ -169,6 +212,7 @@ export function Player({ active, onReady, onLockChange, onFocused, markersRef, o
     const onContextMenu = (event) => event.preventDefault()
     const onPointerDown = (event) => {
       if (!activeRef.current || event.button !== 2) return
+      hasInteractedSinceSpawnRef.current = true
       draggingRef.current = true
       lastPointer.current = { x: event.clientX, y: event.clientY }
       euler.current.setFromQuaternion(camera.quaternion)
@@ -214,19 +258,26 @@ export function Player({ active, onReady, onLockChange, onFocused, markersRef, o
     }
 
     if (!didInitRef.current) {
-      camera.position.set(10, CONFIG.player.eyeHeight, 0)
-      camera.lookAt(0, CONFIG.player.eyeHeight, 0)
-      euler.current.setFromQuaternion(camera.quaternion)
+      applySpawnPose(worldLayout)
       didInitRef.current = true
+    } else if (spawnWorldLayoutRef.current !== worldLayout && !hasInteractedSinceSpawnRef.current) {
+      applySpawnPose(worldLayout)
     }
     setRoaming(true)
-  }, [active, camera, onFocused, setRoaming])
+  }, [active, applySpawnPose, onFocused, setRoaming, worldLayout])
 
   useFrame((_, delta) => {
     // 始终同步相机（玩家）世界坐标到 ref，供展厅地图在打开时取一次快照定位「你在此」。
     if (playerPosRef) {
       playerPosRef.current.x = camera.position.x
       playerPosRef.current.z = camera.position.z
+    }
+    if (!hasInteractedSinceSpawnRef.current && spawnPositionRef.current) {
+      const dx = camera.position.x - spawnPositionRef.current.x
+      const dz = camera.position.z - spawnPositionRef.current.z
+      if (dx * dx + dz * dz > 1.44) {
+        hasInteractedSinceSpawnRef.current = true
+      }
     }
     if (!active || !roamingRef.current) return
 

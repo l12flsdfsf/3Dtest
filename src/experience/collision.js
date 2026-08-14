@@ -18,8 +18,12 @@ export function createPlayerCollisionCapsule(eyeHeight = CONFIG.player.eyeHeight
 }
 
 export function resolveExternalCollisionPosition(position, collisionWorldRef, eyeHeight, collisionCapsule) {
-  const collisionWorld = collisionWorldRef?.current ?? collisionWorldRef
-  if (!collisionWorld) return false
+  const collisionWorld =
+    collisionWorldRef && typeof collisionWorldRef === 'object' && 'current' in collisionWorldRef
+      ? collisionWorldRef.current
+      : collisionWorldRef
+
+  if (!collisionWorld || typeof collisionWorld.capsuleIntersect !== 'function') return false
 
   collisionCapsule.start.set(position.x, PLAYER_COLLIDER_BOTTOM, position.z)
   collisionCapsule.end.set(position.x, eyeHeight - PLAYER_HEAD_CLEARANCE, position.z)

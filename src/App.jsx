@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Experience } from './experience/Experience.jsx'
+import { getAutoRoamStartPose } from './data/autoRoam.js'
 import { HOTSPOTS } from './data/hotspots.js'
 import { hallAtWorldPosition } from './data/halls.js'
 import { RAW_FIGMA_EXPORTS } from './data/assets.js'
@@ -14,6 +15,8 @@ const INITIAL_MAP_HALL = {
   worldLayout: null,
 }
 
+const INITIAL_START_POSE = getAutoRoamStartPose()
+
 const PANEL_ASSETS_TO_PRELOAD = [
   RAW_FIGMA_EXPORTS.cPanel,
   RAW_FIGMA_EXPORTS.cPanel1,
@@ -23,7 +26,10 @@ const PANEL_ASSETS_TO_PRELOAD = [
 export default function App() {
   const controlsRef = useRef(null)
   const resumeModeRef = useRef('roam')
-  const playerPosRef = useRef({ x: 10, z: 0 })
+  const playerPosRef = useRef({
+    x: INITIAL_START_POSE.position.x,
+    z: INITIAL_START_POSE.position.z,
+  })
   const worldLayoutRef = useRef(null)
   const mapOpenRef = useRef(false)
   const [mode, setMode] = useState('roam')

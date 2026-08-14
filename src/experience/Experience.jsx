@@ -1,5 +1,5 @@
-import { Suspense, useRef } from 'react'
-import { Canvas } from '@react-three/fiber'
+import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Lights } from './Lights.jsx'
 import { Hall } from './Hall.jsx'
@@ -9,6 +9,42 @@ import { GltfModel } from './GltfModel.jsx'
 import { AutoRoamCamera } from './AutoRoamCamera.jsx'
 import { TrophyDisplay } from './TrophyDisplay.jsx'
 import { CONFIG } from '../data/config.js'
+import { getAutoRoamStartPose } from '../data/autoRoam.js'
+import { createPlayerCollisionCapsule, resolveExternalCollisionPosition } from './collision.js'
+
+function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usingExternalModel, onSynced }) {
+  const { camera } = useThree()
+  const collisionCapsule = useRef(createPlayerCollisionCapsule())
+
+  useLayoutEffect(() => {
+    if (usingExternalModel && !worldLayout) return
+
+    const { position, target } = getAutoRoamStartPose(worldLayout)
+    camera.up.set(0, 1, 0)
+    camera.position.copy(position)
+
+    if (usingExternalModel) {
+      resolveExternalCollisionPosition(
+        camera.position,
+        collisionWorldRef,
+        CONFIG.player.eyeHeight,
+        collisionCapsule.current,
+      )
+    }
+
+    camera.lookAt(target)
+    camera.updateMatrixWorld()
+
+    if (playerPosRef?.current) {
+      playerPosRef.current.x = camera.position.x
+      playerPosRef.current.z = camera.position.z
+    }
+
+    onSynced?.(true)
+  }, [camera, collisionWorldRef, onSynced, playerPosRef, usingExternalModel, worldLayout])
+
+  return null
+}
 
 export function Experience({
   mode,
@@ -29,13 +65,31 @@ export function Experience({
   const isAutoRoam = mode === 'auto'
   const isInspect = mode === 'inspect'
   const usingExternalModel = Boolean(CONFIG.modelUrl)
+  const initialSpawnPose = useMemo(() => getAutoRoamStartPose(), [])
+  const [spawnReady, setSpawnReady] = useState(!usingExternalModel)
+
+  useEffect(() => {
+    if (usingExternalModel && !worldLayout) {
+      setSpawnReady(false)
+    }
+  }, [usingExternalModel, worldLayout])
 
   return (
     <Canvas
       shadows
       dpr={[1, 1.5]}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
-      camera={{ position: [0, CONFIG.player.eyeHeight, 13], fov: 55, near: 0.25, far: 80 }}
+      style={{ opacity: spawnReady ? 1 : 0 }}
+      camera={{
+        position: [
+          initialSpawnPose.position.x,
+          initialSpawnPose.position.y,
+          initialSpawnPose.position.z,
+        ],
+        fov: 55,
+        near: 0.25,
+        far: 80,
+      }}
     >
       <color attach="background" args={['#dfe8fb']} />
       <fog attach="fog" args={['#e8eefc', 18, 58]} />
@@ -62,6 +116,14 @@ export function Experience({
 
       {!usingExternalModel ? <TrophyDisplay onSelectTrophy={onSelectTrophy} /> : null}
 
+      <InitialSpawnCamera
+        worldLayout={worldLayout}
+        collisionWorldRef={collisionWorldRef}
+        playerPosRef={playerPosRef}
+        usingExternalModel={usingExternalModel}
+        onSynced={setSpawnReady}
+      />
+
       <Player
         active={isManualRoam && !frozen}
         onReady={onReady}
@@ -71,6 +133,7 @@ export function Experience({
         onSelect={onSelect}
         playerPosRef={playerPosRef}
         collisionWorldRef={collisionWorldRef}
+        worldLayout={worldLayout}
       />
 
       {isAutoRoam && !frozen ? (

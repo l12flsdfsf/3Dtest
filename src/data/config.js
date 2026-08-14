@@ -33,5 +33,9 @@ export const CONFIG = {
     positionSharpness: 6.2,
     targetSharpness: 2.8,
     maxTurnSpeed: 0.62,
+    approachTurnStart: 0.18,
+    approachTurnEnd: 0.82,
+    approachTargetSharpness: 4.6,
+    approachMaxTurnSpeed: 0.84,
   },
 }

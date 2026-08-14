@@ -97,10 +97,11 @@ function buildCorridorTransit(fromHall, toHall) {
   ]
 }
 
-function buildHallSweep(hall, { entryDirection = 0, exitDirection = 0 } = {}) {
+function buildHallSweep(hall, { entryDirection = 0, exitDirection = 0, entryTargetOverride = null } = {}) {
   const themeTarget = hallLook(hall, LOCAL_ANCHORS.themeHotspot)
   const docTarget = hallLook(hall, DOC_WALL_TARGET)
   const modelTarget = hallLook(hall, LOCAL_ANCHORS.modelHotspot)
+  const entryTarget = entryTargetOverride ?? (entryDirection ? themeTarget : hallwayLook(hall, 2.95))
   const entryOffset = entryDirection ? -entryDirection * ENTRY_SIDE_OFFSET : 0
   const exitOffset = exitDirection ? exitDirection * EXIT_SIDE_OFFSET : 0
   const exitRoomPosition = roomPoint(hall, exitDirection ? -0.18 + exitDirection * 0.24 : -0.35, 2.68)
@@ -130,7 +131,7 @@ function buildHallSweep(hall, { entryDirection = 0, exitDirection = 0 } = {}) {
       ]
 
   return [
-    frame(corridorPoint(hall, entryOffset, 1.24), hallwayLook(hall, 2.95), {
+    frame(corridorPoint(hall, entryOffset, 1.24), entryTarget, {
       hold: 0.04,
       speed: DEFAULT_SPEED * 0.96,
     }),
@@ -143,6 +144,35 @@ function buildHallSweep(hall, { entryDirection = 0, exitDirection = 0 } = {}) {
     frame(roomPoint(hall, -0.7, 4.2), modelTarget, { hold: 1.7, speed: HALL_FOCUS_SPEED }),
     ...exitFrames,
   ]
+}
+
+function buildTvToCinemaTransition() {
+  return [
+    frame(layoutPoint(-8.95, -0.3), layoutPoint(-11.15, 0.2, 1.65), {
+      hold: 1.05,
+      speed: 1.38,
+    }),
+    frame(layoutPoint(-8.92, 0.72), layoutPoint(-10.95, 1.05, 1.65), {
+      hold: 0.1,
+      speed: 1.34,
+    }),
+    frame(layoutPoint(-8.68, 2.15), layoutPoint(-9.55, 4.05), {
+      hold: 0.02,
+      speed: 1.42,
+    }),
+  ]
+}
+
+function resolveFrameTargetPoint(item, worldLayout) {
+  if (item.anchorKey && worldLayout?.anchors?.[item.anchorKey]) {
+    return new THREE.Vector3(
+      worldLayout.anchors[item.anchorKey].x,
+      worldLayout.anchors[item.anchorKey].y,
+      worldLayout.anchors[item.anchorKey].z,
+    )
+  }
+
+  return projectPoint(item.target, worldLayout)
 }
 
 function buildCanonicalRoute() {
@@ -174,15 +204,10 @@ function buildCanonicalRoute() {
     }),
     ...buildCorridorTransit(broadcast, tv),
     ...buildHallSweep(tv, { entryDirection: Math.sign(tv.center - broadcast.center) || 0 }),
-    frame(layoutPoint(-8.95, -0.25), layoutPoint(-11.1, -0.05, 1.65), {
-      anchorKey: 'trophyArea',
-      hold: 2.35,
-      speed: 1.5,
-    }),
-    travelFrame(layoutPoint(-4.2, -0.1), { hold: 0.08, lookDistance: 5 }),
-    travelFrame(layoutPoint(1.8, -0.15), { lookDistance: 5.2 }),
+    ...buildTvToCinemaTransition(),
     ...buildHallSweep(cinema, {
-      entryDirection: Math.sign(cinema.center - 1.8) || 0,
+      entryDirection: 1,
+      entryTargetOverride: hallwayLook(cinema, 2.95),
       exitDirection: Math.sign(tech.center - cinema.center) || 0,
     }),
     ...buildCorridorTransit(cinema, tech),
@@ -205,16 +230,19 @@ function buildCanonicalRoute() {
   ]
 }
 
+export function getAutoRoamStartPose(worldLayout) {
+  const [startFrame] = buildCanonicalRoute()
+
+  return {
+    position: projectPoint(startFrame.position, worldLayout),
+    target: resolveFrameTargetPoint(startFrame, worldLayout),
+  }
+}
+
 export function buildAutoRoamKeyframes(worldLayout) {
   return buildCanonicalRoute().map((item) => ({
     ...item,
     position: projectPoint(item.position, worldLayout),
-    target: item.anchorKey && worldLayout?.anchors?.[item.anchorKey]
-      ? new THREE.Vector3(
-          worldLayout.anchors[item.anchorKey].x,
-          worldLayout.anchors[item.anchorKey].y,
-          worldLayout.anchors[item.anchorKey].z,
-        )
-      : projectPoint(item.target, worldLayout),
+    target: resolveFrameTargetPoint(item, worldLayout),
   }))
 }
