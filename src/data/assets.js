@@ -24,4 +24,8 @@ export const RAW_FIGMA_EXPORTS = {
   cPanel1: rawExport('C-1.png'),
   cPanel2: rawExport('C-2.png'),
   cPanel3: rawExport('C-3.png'),
+  volumePanel: rawExport('音量下拉框.png'),
+  volumeRail: rawExport('Scroll rail-1.png'),
+  volumeFill: rawExport('音量条.png'),
+  volumeThumb: rawExport('Ellipse 1.png'),
 }

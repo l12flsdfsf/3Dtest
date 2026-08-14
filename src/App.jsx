@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { message } from 'antd'
 import { Experience } from './experience/Experience.jsx'
 import { HOTSPOTS } from './data/hotspots.js'
 import { hallAtWorldPosition } from './data/halls.js'
@@ -11,7 +10,7 @@ import { TrophyModal } from './ui/TrophyModal.jsx'
 
 const INITIAL_MAP_HALL = {
   id: 'corridor',
-  label: '\u4e2d\u592e\u8d70\u5eca',
+  label: '\u5c55\u9986\u5927\u5385',
   worldLayout: null,
 }
 
@@ -32,7 +31,8 @@ export default function App() {
   const [helpOpen, setHelpOpen] = useState(false)
   const [locked, setLocked] = useState(false)
   const [focused, setFocused] = useState(null)
-  const [musicEnabled, setMusicEnabled] = useState(false)
+  const [volume, setVolume] = useState(60)
+  const [volumeOpen, setVolumeOpen] = useState(false)
   const [trophy, setTrophy] = useState(null)
   const [mapHall, setMapHall] = useState(INITIAL_MAP_HALL)
 
@@ -68,7 +68,7 @@ export default function App() {
       description:
         '\u5f53\u524d\u5c55\u5385\u91c7\u7528\u73af\u5f62\u6e38\u89c8\u52a8\u7ebf\uff0c\u5165\u53e3\u4f4d\u4e8e\u5357\u4fa7\u4e2d\u592e\uff0c\u987a\u65f6\u9488\u53ef\u4f9d\u6b21\u5b8c\u6210\u516d\u4e2a\u4e3b\u9898\u5206\u5385\u7684\u53c2\u89c2\u3002',
       route: [
-        '\u5165\u53e3 / \u4e2d\u592e\u5927\u5385',
+        '\u5165\u53e3 / \u5c55\u9986\u5927\u5385',
         '\u5173\u6000\u5385',
         '\u5e7f\u64ad\u5385',
         '\u7535\u89c6\u5385',
@@ -197,19 +197,11 @@ export default function App() {
     resumePreviousMode()
   }, [resumePreviousMode])
 
-  const toggleMusic = useCallback(() => {
-    setMusicEnabled((prev) => {
-      const next = !prev
-      window.requestAnimationFrame(() => {
-        message.info(
-          next
-            ? '\u5168\u5c40\u97f3\u4e50\u5df2\u5f00\u542f\uff0c\u5f53\u524d\u4e3a\u4ea4\u4e92\u5360\u4f4d\u3002'
-            : '\u5168\u5c40\u97f3\u4e50\u5df2\u5173\u95ed\u3002',
-        )
-      })
-      return next
-    })
+  const toggleVolumePanel = useCallback(() => {
+    setVolumeOpen((open) => !open)
   }, [])
+
+  const closeVolumePanel = useCallback(() => setVolumeOpen(false), [])
 
   const exitExperience = useCallback(() => {
     controlsRef.current?.unlock?.()
@@ -260,11 +252,15 @@ export default function App() {
         autoActive={mode === 'auto'}
         helpActive={helpOpen}
         mapActive={selected?.id === mapPanel.id}
-        musicActive={musicEnabled}
+        musicActive={volume > 0}
+        volume={volume}
+        volumeOpen={volumeOpen}
         onAutoRoam={toggleAutoRoam}
         onHelp={openHelp}
         onMap={openMap}
-        onMusic={toggleMusic}
+        onMusic={toggleVolumePanel}
+        onVolumeChange={setVolume}
+        onVolumeClose={closeVolumePanel}
         onExit={exitExperience}
       />
 

@@ -8,7 +8,7 @@ const ROOM_DEPTH = CONFIG.hall.depth / 2 - CORRIDOR_HALF
 const ROOM_HALF_X = ROOM_WIDTH / 2
 const ROOM_CENTER_Z = CORRIDOR_HALF + ROOM_DEPTH / 2
 const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
-const CORRIDOR_HALL = { id: 'corridor', label: '中央走廊' }
+const CORRIDOR_HALL = { id: 'corridor', label: '展馆大厅' }
 const ENTRANCE_HALL = { id: 'entrance', label: '主入口' }
 
 // 房间内本地坐标锚点：入口在 z=0（朝向中央走廊），后墙在 z=ROOM_DEPTH。

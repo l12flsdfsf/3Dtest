@@ -28,7 +28,7 @@ function buildHotspots() {
       description: hall.theme.body,
       bullets: hall.highlights,
       facts: hall.facts,
-      route: ['入口 / 中央大厅', ...HALL_NAMES],
+      route: ['入口 / 展馆大厅', ...HALL_NAMES],
     })
 
     // 文献资料
