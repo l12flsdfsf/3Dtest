@@ -12,11 +12,16 @@ const EYE_Y = CONFIG.player.eyeHeight
 const CORRIDOR_HALF = CONFIG.hall.corridorHalf ?? 4
 const DEFAULT_SPEED = CONFIG.autoRoam.speed ?? 1.7
 const HALL_SWEEP_SPEED = Math.max(DEFAULT_SPEED * 0.88, 1.45)
+const HALL_FOCUS_SPEED = Math.max(DEFAULT_SPEED * 0.72, 1.18)
 const TRANSIT_SPEED = Math.max(DEFAULT_SPEED * 0.94, 1.55)
 const DOC_PANEL_CENTER_X = (LOCAL_ANCHORS.docPanels[0][0] + LOCAL_ANCHORS.docPanels[1][0]) / 2
 const DOC_PANEL_CENTER_Y = (LOCAL_ANCHORS.docPanels[0][1] + LOCAL_ANCHORS.docPanels[1][1]) / 2
 const DOC_WALL_TARGET = [DOC_PANEL_CENTER_X, DOC_PANEL_CENTER_Y, LOCAL_ANCHORS.docPanels[0][2] - 0.08]
 const DOC_WALL_VIEW = [0.2, EYE_Y, 2.8]
+const CORRIDOR_TRANSIT_DEPTH = 1.55
+const ENTRY_SIDE_OFFSET = 0.42
+const EXIT_SIDE_OFFSET = 0.52
+const ENTRY_PRETURN_OFFSET = 0.78
 
 const HALL_BY_ID = Object.fromEntries(HALLS.map((hall) => [hall.id, hall]))
 
@@ -70,49 +75,73 @@ function travelFrame(position, options = {}) {
   })
 }
 
-function corridorTransitPoint(hall, xOffset = 0, zOffset = 0, y = EYE_Y) {
-  const { z } = getHallCanonicalCenter(hall)
-  const sign = Math.sign(z) || 1
-  return [hall.center + xOffset, y, sign * (CORRIDOR_HALF * 0.48 + zOffset)]
-}
-
 function buildCorridorTransit(fromHall, toHall) {
-  const direction = Math.sign(toHall.center - fromHall.center) || 1
-  const gap = Math.abs(toHall.center - fromHall.center)
-  const step = Math.min(Math.max(gap * 0.28, 1.25), 1.9)
+  const direction = Math.sign(toHall.center - fromHall.center) || 0
+  const rowSign = Math.sign(getHallCanonicalCenter(fromHall).z) || 1
+  const midpointX = fromHall.center + (toHall.center - fromHall.center) * 0.52
+  const transitZ = rowSign * (CORRIDOR_HALF - CORRIDOR_TRANSIT_DEPTH)
+
+  if (!direction) return []
 
   return [
-    travelFrame(corridorTransitPoint(fromHall, direction * step, 0.12), {
-      hold: 0.08,
-      lookDistance: 4.9,
+    travelFrame(layoutPoint(midpointX, transitZ), {
+      hold: 0,
+      lookDistance: 4.75,
+      speed: TRANSIT_SPEED * 0.97,
     }),
-    travelFrame(layoutPoint((fromHall.center + toHall.center) / 2, corridorTransitPoint(fromHall)[2]), {
-      lookDistance: 5.1,
-    }),
-    travelFrame(corridorTransitPoint(toHall, -direction * step, 0.12), {
-      hold: 0.08,
-      lookDistance: 4.7,
+    travelFrame(corridorPoint(toHall, -direction * ENTRY_PRETURN_OFFSET, CORRIDOR_TRANSIT_DEPTH), {
+      hold: 0,
+      lookDistance: 4.6,
+      speed: TRANSIT_SPEED * 0.97,
     }),
   ]
 }
 
-function buildHallSweep(hall) {
+function buildHallSweep(hall, { entryDirection = 0, exitDirection = 0 } = {}) {
   const themeTarget = hallLook(hall, LOCAL_ANCHORS.themeHotspot)
   const docTarget = hallLook(hall, DOC_WALL_TARGET)
   const modelTarget = hallLook(hall, LOCAL_ANCHORS.modelHotspot)
-  const exitTarget = hallwayLook(hall, 0.95)
+  const entryOffset = entryDirection ? -entryDirection * ENTRY_SIDE_OFFSET : 0
+  const exitOffset = exitDirection ? exitDirection * EXIT_SIDE_OFFSET : 0
+  const exitRoomPosition = roomPoint(hall, exitDirection ? -0.18 + exitDirection * 0.24 : -0.35, 2.68)
+  const exitTarget = exitDirection
+    ? corridorPoint(hall, exitDirection * 1.8, CORRIDOR_TRANSIT_DEPTH, EYE_Y + 0.08)
+    : hallwayLook(hall, 0.95)
+  const exitFrames = exitDirection
+    ? [
+        travelFrame(exitRoomPosition, {
+          hold: 0.03,
+          lookDistance: 4.3,
+          speed: HALL_SWEEP_SPEED * 0.98,
+        }),
+        travelFrame(corridorPoint(hall, exitOffset, 1.16), {
+          hold: 0.04,
+          lookDistance: 4.55,
+          speed: TRANSIT_SPEED * 0.95,
+        }),
+      ]
+    : [
+        frame(exitRoomPosition, exitTarget, { hold: 0.14, speed: HALL_SWEEP_SPEED * 0.96 }),
+        travelFrame(corridorPoint(hall, exitOffset, 1.16), {
+          hold: 0.04,
+          lookDistance: 4.55,
+          speed: TRANSIT_SPEED * 0.95,
+        }),
+      ]
 
   return [
-    frame(corridorPoint(hall, 0, 1.28), hallwayLook(hall, 2.95), { hold: 0.22, speed: DEFAULT_SPEED }),
+    frame(corridorPoint(hall, entryOffset, 1.24), hallwayLook(hall, 2.95), {
+      hold: 0.04,
+      speed: DEFAULT_SPEED * 0.96,
+    }),
     frame(roomPoint(hall, 0.1, 1.85), themeTarget, { hold: 0.4, speed: HALL_SWEEP_SPEED }),
     frame(roomPoint(hall, 1.15, 3.35), themeTarget, { hold: 1.2, speed: HALL_SWEEP_SPEED }),
     frame(roomPoint(hall, DOC_WALL_VIEW[0], DOC_WALL_VIEW[2], DOC_WALL_VIEW[1]), docTarget, {
-      hold: 1.45,
-      speed: HALL_SWEEP_SPEED,
+      hold: 2.05,
+      speed: HALL_FOCUS_SPEED,
     }),
-    frame(roomPoint(hall, -0.7, 4.2), modelTarget, { hold: 1.05, speed: HALL_SWEEP_SPEED }),
-    frame(roomPoint(hall, -0.35, 2.75), exitTarget, { hold: 0.38, speed: HALL_SWEEP_SPEED }),
-    travelFrame(corridorPoint(hall, 0, 1.12), { hold: 0.1, lookDistance: 4.55 }),
+    frame(roomPoint(hall, -0.7, 4.2), modelTarget, { hold: 1.7, speed: HALL_FOCUS_SPEED }),
+    ...exitFrames,
   ]
 }
 
@@ -137,11 +166,14 @@ function buildCanonicalRoute() {
       hold: 0.3,
       speed: 1.5,
     }),
-    ...buildHallSweep(care),
+    ...buildHallSweep(care, { exitDirection: Math.sign(broadcast.center - care.center) || 0 }),
     ...buildCorridorTransit(care, broadcast),
-    ...buildHallSweep(broadcast),
+    ...buildHallSweep(broadcast, {
+      entryDirection: Math.sign(broadcast.center - care.center) || 0,
+      exitDirection: Math.sign(tv.center - broadcast.center) || 0,
+    }),
     ...buildCorridorTransit(broadcast, tv),
-    ...buildHallSweep(tv),
+    ...buildHallSweep(tv, { entryDirection: Math.sign(tv.center - broadcast.center) || 0 }),
     frame(layoutPoint(-8.95, -0.25), layoutPoint(-11.1, -0.05, 1.65), {
       anchorKey: 'trophyArea',
       hold: 2.35,
@@ -149,11 +181,17 @@ function buildCanonicalRoute() {
     }),
     travelFrame(layoutPoint(-4.2, -0.1), { hold: 0.08, lookDistance: 5 }),
     travelFrame(layoutPoint(1.8, -0.15), { lookDistance: 5.2 }),
-    ...buildHallSweep(cinema),
+    ...buildHallSweep(cinema, {
+      entryDirection: Math.sign(cinema.center - 1.8) || 0,
+      exitDirection: Math.sign(tech.center - cinema.center) || 0,
+    }),
     ...buildCorridorTransit(cinema, tech),
-    ...buildHallSweep(tech),
+    ...buildHallSweep(tech, {
+      entryDirection: Math.sign(tech.center - cinema.center) || 0,
+      exitDirection: Math.sign(future.center - tech.center) || 0,
+    }),
     ...buildCorridorTransit(tech, future),
-    ...buildHallSweep(future),
+    ...buildHallSweep(future, { entryDirection: Math.sign(future.center - tech.center) || 0 }),
     frame(layoutPoint(8.55, 2.2 * secondRowSign), layoutPoint(11.55, 3.75 * secondRowSign, 2.15), {
       anchorKey: 'honorChapter',
       hold: 2.5,

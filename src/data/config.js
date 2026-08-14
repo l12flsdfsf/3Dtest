@@ -32,6 +32,6 @@ export const CONFIG = {
     speed: 1.7,
     positionSharpness: 6.2,
     targetSharpness: 2.8,
-    maxTurnSpeed: 0.72,
+    maxTurnSpeed: 0.62,
   },
 }

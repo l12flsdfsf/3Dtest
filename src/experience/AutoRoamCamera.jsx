@@ -11,7 +11,6 @@ import {
 
 const _desiredPosition = new THREE.Vector3()
 const _desiredTarget = new THREE.Vector3()
-const _interpolatedPosition = new THREE.Vector3()
 const _interpolatedTarget = new THREE.Vector3()
 const _smoothedPosition = new THREE.Vector3()
 const _movementDelta = new THREE.Vector3()
@@ -19,6 +18,8 @@ const _movementStep = new THREE.Vector3()
 const _forwardDirection = new THREE.Vector3()
 const _lookMatrix = new THREE.Matrix4()
 const _desiredQuaternion = new THREE.Quaternion()
+const _curvePoints = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
+const _segmentCurve = new THREE.CatmullRomCurve3(_curvePoints, false, 'centripetal')
 
 function getSegmentDistance(route, index, nextIndex) {
   return Math.max(route[index].position.distanceTo(route[nextIndex].position), 1e-5)
@@ -28,15 +29,55 @@ function getDampAlpha(sharpness, delta) {
   return 1 - Math.exp(-sharpness * delta)
 }
 
-function getEasedProgress(value) {
-  return value * value * value * (value * (value * 6 - 15) + 10)
+function resolveRouteIndex(route, index) {
+  if (CONFIG.autoRoam.loop) {
+    return (index + route.length) % route.length
+  }
+
+  return Math.min(Math.max(index, 0), route.length - 1)
 }
 
-function resolveFrameTarget(route, index, nextIndex, position, fallbackTarget) {
+function useCurveSegment(route, index, nextIndex) {
+  return route[index]?.targetMode === 'forward'
+}
+
+function configureSegmentCurve(route, index, nextIndex) {
+  const prevIndex = resolveRouteIndex(route, index - 1)
+  const afterIndex = resolveRouteIndex(route, nextIndex + 1)
+
+  _curvePoints[0].copy(route[prevIndex].position)
+  _curvePoints[1].copy(route[index].position)
+  _curvePoints[2].copy(route[nextIndex].position)
+  _curvePoints[3].copy(route[afterIndex].position)
+}
+
+function getCurveProgress(progress) {
+  return 1 / 3 + progress / 3
+}
+
+function sampleSegmentPosition(route, index, nextIndex, progress, output) {
+  if (!useCurveSegment(route, index, nextIndex)) {
+    return output.lerpVectors(route[index].position, route[nextIndex].position, progress)
+  }
+
+  configureSegmentCurve(route, index, nextIndex)
+  return _segmentCurve.getPoint(getCurveProgress(progress), output)
+}
+
+function sampleSegmentDirection(route, index, nextIndex, progress, output) {
+  if (!useCurveSegment(route, index, nextIndex)) {
+    return output.subVectors(route[nextIndex].position, route[index].position)
+  }
+
+  configureSegmentCurve(route, index, nextIndex)
+  return _segmentCurve.getTangent(getCurveProgress(progress), output)
+}
+
+function resolveFrameTarget(route, index, nextIndex, progress, position, fallbackTarget) {
   const frame = route[index]
 
   if (frame.targetMode === 'forward') {
-    _forwardDirection.subVectors(route[nextIndex].position, frame.position)
+    sampleSegmentDirection(route, index, nextIndex, progress, _forwardDirection)
     if (_forwardDirection.lengthSq() < 1e-6) {
       _forwardDirection.subVectors(route[nextIndex].target, position)
     }
@@ -64,10 +105,6 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
   useEffect(() => {
     if (!route.length) return
 
-    console.log('[autoRoam diag] transform =', worldLayout && worldLayout.transform)
-    console.log('[autoRoam diag] center =', worldLayout && worldLayout.centerX, worldLayout && worldLayout.centerZ, 'half =', worldLayout && worldLayout.halfWidth, worldLayout && worldLayout.halfDepth)
-    console.log('[autoRoam diag] honor frame  pos =', route[1] && route[1].position && route[1].position.toArray(), 'target =', route[1] && route[1].target && route[1].target.toArray())
-
     currentIndexRef.current = 0
     segmentProgressRef.current = 0
     pauseRemainingRef.current = route[0].hold ?? 0
@@ -80,7 +117,8 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
       collisionCapsuleRef.current,
     )
     camera.position.copy(travelPositionRef.current)
-    lookTargetRef.current.copy(route[0].target)
+    resolveFrameTarget(route, 0, route.length > 1 ? 1 : 0, 0, camera.position, route[0].target)
+    lookTargetRef.current.copy(_desiredTarget)
     _lookMatrix.lookAt(camera.position, lookTargetRef.current, camera.up)
     camera.quaternion.setFromRotationMatrix(_lookMatrix)
     onFocused?.(null)
@@ -95,7 +133,7 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
     let nextIndex = index + 1 < route.length ? index + 1 : 0
 
     _desiredPosition.copy(route[index].position)
-    resolveFrameTarget(route, index, nextIndex, _desiredPosition, route[index].target)
+    resolveFrameTarget(route, index, nextIndex, progress, _desiredPosition, route[index].target)
 
     if (pauseRemaining > 0) {
       pauseRemaining = Math.max(0, pauseRemaining - delta)
@@ -114,7 +152,7 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
           progress = 0
           nextIndex = index + 1 < route.length ? index + 1 : 0
           _desiredPosition.copy(route[index].position)
-          resolveFrameTarget(route, index, nextIndex, _desiredPosition, route[index].target)
+          resolveFrameTarget(route, index, nextIndex, progress, _desiredPosition, route[index].target)
 
           if (!CONFIG.autoRoam.loop && index === route.length - 1) {
             remainingTime = 0
@@ -129,13 +167,11 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
         progress += (remainingTime * segmentSpeed) / segmentDistance
         remainingTime = 0
 
-        const easedProgress = getEasedProgress(progress)
-        _interpolatedPosition.lerpVectors(route[index].position, route[nextIndex].position, easedProgress)
-        _desiredPosition.copy(_interpolatedPosition)
+        sampleSegmentPosition(route, index, nextIndex, progress, _desiredPosition)
         if (route[index].targetMode === 'forward') {
-          resolveFrameTarget(route, index, nextIndex, _desiredPosition, route[index].target)
+          resolveFrameTarget(route, index, nextIndex, progress, _desiredPosition, route[index].target)
         } else {
-          _interpolatedTarget.lerpVectors(route[index].target, route[nextIndex].target, easedProgress)
+          _interpolatedTarget.lerpVectors(route[index].target, route[nextIndex].target, progress)
           _desiredTarget.copy(_interpolatedTarget)
         }
       }
