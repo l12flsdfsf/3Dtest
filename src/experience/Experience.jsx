@@ -21,6 +21,7 @@ export function Experience({
   frozen,
   playerPosRef,
   onWorldLayout,
+  worldLayout,
 }) {
   const markersRef = useRef([])
   const collisionWorldRef = useRef(null)
@@ -72,7 +73,14 @@ export function Experience({
         collisionWorldRef={collisionWorldRef}
       />
 
-      {isAutoRoam && !frozen ? <AutoRoamCamera onFocused={onFocused} /> : null}
+      {isAutoRoam && !frozen ? (
+        <AutoRoamCamera
+          onFocused={onFocused}
+          worldLayout={worldLayout}
+          playerPosRef={playerPosRef}
+          collisionWorldRef={collisionWorldRef}
+        />
+      ) : null}
 
       {isInspect && !frozen ? (
         <OrbitControls

@@ -1,12 +1,9 @@
 import { useEffect, useRef } from 'react'
-import CloseOutlined from '@ant-design/icons/CloseOutlined'
 import { Button, Modal } from 'antd'
 import { Canvas, useFrame } from '@react-three/fiber'
 import { FloorMap } from './FloorMap.jsx'
+import { OverlayPanel } from './OverlayPanel.jsx'
 import { RAW_FIGMA_EXPORTS } from '../data/assets.js'
-
-const MAP_PANEL_WIDTH = 972
-const MAP_PANEL_HEIGHT = 698
 
 function ContentImage({ hotspot }) {
   const src = hotspot?.scenePreview || hotspot?.assetSrc
@@ -103,59 +100,29 @@ export function HotspotDrawer({ hotspot, onClose, currentHall }) {
 
   if (hotspot && isMap) {
     return (
-      <div
-        className="fixed inset-0 z-[1000] flex items-center justify-center bg-[rgba(15,23,42,0.22)] p-4"
-        onClick={onClose}
+      <OverlayPanel
+        backgroundSrc={RAW_FIGMA_EXPORTS.cPanel3}
+        title={hotspot.title}
+        subtitle={hotspot.subtitle}
+        onClose={onClose}
       >
-        <div
-          className="relative"
-          style={{
-            width: `min(${MAP_PANEL_WIDTH}px, calc(100vw - 32px), calc((100vh - 32px) * ${MAP_PANEL_WIDTH} / ${MAP_PANEL_HEIGHT}))`,
-            aspectRatio: `${MAP_PANEL_WIDTH} / ${MAP_PANEL_HEIGHT}`,
-          }}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <img
-            src={RAW_FIGMA_EXPORTS.cPanel3}
-            alt=""
-            aria-hidden="true"
-            className="pointer-events-none absolute inset-0 h-full w-full"
-          />
-
-          <button
-            type="button"
-            aria-label="关闭"
-            className="absolute right-[18px] top-[18px] z-10 flex h-9 w-9 items-center justify-center rounded-full bg-[rgba(241,245,249,0.94)] text-slate-700 transition hover:bg-[rgba(226,232,240,0.98)]"
-            onClick={onClose}
-          >
-            <CloseOutlined />
-          </button>
-
-          <div className="absolute left-[5.4%] top-[5.2%] max-w-[60%] text-slate-700">
-            <div className="text-[28px] font-semibold leading-tight text-slate-800">
-              {hotspot.title}
-            </div>
-            <div className="mt-2 text-[14px] leading-6 text-slate-500">{hotspot.subtitle}</div>
-          </div>
-
-          <div className="flex h-full w-full items-center justify-center pt-[6%]">
-            <FloorMap currentHall={currentHall} />
-          </div>
-
-          <div className="pointer-events-none absolute bottom-[8.5%] left-[6.6%] flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.12)] ring-1 ring-slate-200">
-            <span
-              className="rounded-full"
-              style={{
-                width: 'calc(min(48vh, 480px) / 28)',
-                height: 'calc(min(48vh, 480px) / 28)',
-                backgroundColor: '#2563eb',
-                boxShadow: '0 0 0 calc(min(48vh, 480px) * 6 / 280) rgba(37, 99, 235, 0.16)',
-              }}
-            />
-            <span className="text-[14px] font-medium leading-6 text-slate-600">{'\u5f53\u524d\u4f4d\u7f6e'}</span>
-          </div>
+        <div className="flex h-full w-full items-center justify-center pt-[6%]">
+          <FloorMap currentHall={currentHall} />
         </div>
-      </div>
+
+        <div className="pointer-events-none absolute bottom-[8.5%] left-[6.6%] flex items-center gap-2 rounded-full bg-white/90 px-3 py-1.5 shadow-[0_2px_8px_rgba(15,23,42,0.12)] ring-1 ring-slate-200">
+          <span
+            className="rounded-full"
+            style={{
+              width: 'calc(min(48vh, 480px) / 28)',
+              height: 'calc(min(48vh, 480px) / 28)',
+              backgroundColor: '#2563eb',
+              boxShadow: '0 0 0 calc(min(48vh, 480px) * 6 / 280) rgba(37, 99, 235, 0.16)',
+            }}
+          />
+          <span className="text-[14px] font-medium leading-6 text-slate-600">{'\u5f53\u524d\u4f4d\u7f6e'}</span>
+        </div>
+      </OverlayPanel>
     )
   }
 
@@ -171,78 +138,76 @@ export function HotspotDrawer({ hotspot, onClose, currentHall }) {
       styles={undefined}
     >
       {hotspot ? (
-        (
-          <div className="space-y-6">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <span
-                    className="rounded-full px-3 py-1 text-xs font-semibold"
-                    style={{ background: `${hotspot.color}1c`, color: hotspot.color }}
-                  >
-                    {hotspot.code}
-                  </span>
-                  <span className="text-sm font-medium text-slate-500">{hotspot.tag}</span>
-                </div>
-                <div className="text-3xl font-semibold text-slate-900">{hotspot.title}</div>
-                <div className="text-sm leading-6 text-slate-500">{hotspot.subtitle}</div>
+        <div className="space-y-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <span
+                  className="rounded-full px-3 py-1 text-xs font-semibold"
+                  style={{ background: `${hotspot.color}1c`, color: hotspot.color }}
+                >
+                  {hotspot.code}
+                </span>
+                <span className="text-sm font-medium text-slate-500">{hotspot.tag}</span>
               </div>
-
-              <Button size="large" onClick={onClose}>
-                {'\u8fd4\u56de\u6f2b\u6e38'}
-              </Button>
+              <div className="text-3xl font-semibold text-slate-900">{hotspot.title}</div>
+              <div className="text-sm leading-6 text-slate-500">{hotspot.subtitle}</div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
-              <div className="space-y-4">
-                <ContentImage hotspot={hotspot} />
-                {hotspot.kind === 'model' ? <ModelPreview color={hotspot.color} /> : null}
-              </div>
-
-              <div className="space-y-5">
-                <div className="rounded-[24px] border border-slate-200 bg-slate-50 px-5 py-5">
-                  <div className="text-sm font-semibold text-slate-900">{'\u5185\u5bb9\u8bf4\u660e'}</div>
-                  <div className="mt-3 text-sm leading-7 text-slate-600">{hotspot.description}</div>
-                </div>
-
-                {hotspot.route?.length ? (
-                  <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-5">
-                    <div className="text-sm font-semibold text-slate-900">{'\u63a8\u8350\u8def\u7ebf'}</div>
-                    <div className="mt-4 space-y-3">
-                      {hotspot.route.map((step, index) => (
-                        <div key={step} className="flex items-center gap-3">
-                          <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
-                            {index + 1}
-                          </div>
-                          <div className="text-sm text-slate-600">{step}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-
-                {hotspot.bullets?.length ? (
-                  <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-5">
-                    <div className="text-sm font-semibold text-slate-900">{'\u8981\u70b9'}</div>
-                    <div className="mt-4 space-y-3">
-                      {hotspot.bullets.map((item) => (
-                        <div key={item} className="flex gap-3 text-sm leading-6 text-slate-600">
-                          <div
-                            className="mt-2 h-2.5 w-2.5 rounded-full"
-                            style={{ backgroundColor: hotspot.color }}
-                          />
-                          <div>{item}</div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            <Facts items={hotspot.facts} />
+            <Button size="large" onClick={onClose}>
+              {'\u8fd4\u56de\u6f2b\u6e38'}
+            </Button>
           </div>
-        )
+
+          <div className="grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
+            <div className="space-y-4">
+              <ContentImage hotspot={hotspot} />
+              {hotspot.kind === 'model' ? <ModelPreview color={hotspot.color} /> : null}
+            </div>
+
+            <div className="space-y-5">
+              <div className="rounded-[24px] border border-slate-200 bg-slate-50 px-5 py-5">
+                <div className="text-sm font-semibold text-slate-900">{'\u5185\u5bb9\u8bf4\u660e'}</div>
+                <div className="mt-3 text-sm leading-7 text-slate-600">{hotspot.description}</div>
+              </div>
+
+              {hotspot.route?.length ? (
+                <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-5">
+                  <div className="text-sm font-semibold text-slate-900">{'\u63a8\u8350\u8def\u7ebf'}</div>
+                  <div className="mt-4 space-y-3">
+                    {hotspot.route.map((step, index) => (
+                      <div key={step} className="flex items-center gap-3">
+                        <div className="flex h-7 w-7 items-center justify-center rounded-full bg-slate-900 text-xs font-semibold text-white">
+                          {index + 1}
+                        </div>
+                        <div className="text-sm text-slate-600">{step}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {hotspot.bullets?.length ? (
+                <div className="rounded-[24px] border border-slate-200 bg-white px-5 py-5">
+                  <div className="text-sm font-semibold text-slate-900">{'\u8981\u70b9'}</div>
+                  <div className="mt-4 space-y-3">
+                    {hotspot.bullets.map((item) => (
+                      <div key={item} className="flex gap-3 text-sm leading-6 text-slate-600">
+                        <div
+                          className="mt-2 h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: hotspot.color }}
+                        />
+                        <div>{item}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          <Facts items={hotspot.facts} />
+        </div>
       ) : null}
     </Modal>
   )

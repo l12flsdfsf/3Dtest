@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
-import { Capsule } from 'three/examples/jsm/math/Capsule.js'
 import { CONFIG } from '../data/config.js'
 import { HALLS, LOCAL_ANCHORS, roomToWorld, MODEL_PLINTH_HALF } from '../data/halls.js'
+import {
+  COLLISION_STEP,
+  PLAYER_HEAD_CLEARANCE,
+  PLAYER_RADIUS,
+  createPlayerCollisionCapsule,
+  resolveExternalCollisionPosition,
+} from './collision.js'
 
 const LOOK_SENSITIVITY = 0.0024
 const MAX_PITCH = Math.PI / 2 - 0.05
-const PLAYER_RADIUS = 0.35
-const COLLISION_STEP = PLAYER_RADIUS * 0.5
-const PLAYER_COLLIDER_BOTTOM = PLAYER_RADIUS + 0.02
-const PLAYER_HEAD_CLEARANCE = 0.12
 const DOOR_HALF = 1.15
 const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
 
@@ -18,7 +20,6 @@ const _forward = new THREE.Vector3()
 const _right = new THREE.Vector3()
 const _move = new THREE.Vector3()
 const _step = new THREE.Vector3()
-const _push = new THREE.Vector3()
 const _center = new THREE.Vector2(0, 0)
 
 function buildCollisionWalls() {
@@ -79,31 +80,14 @@ function hitsWall(x, z) {
 }
 
 function resolveExternalCollision(camera, collisionWorldRef, eyeHeight, collisionCapsule) {
-  const collisionWorld = collisionWorldRef?.current
-  if (!collisionWorld) return
-
-  collisionCapsule.start.set(camera.position.x, PLAYER_COLLIDER_BOTTOM, camera.position.z)
-  collisionCapsule.end.set(camera.position.x, eyeHeight - PLAYER_HEAD_CLEARANCE, camera.position.z)
-  const hit = collisionWorld.capsuleIntersect(collisionCapsule)
-  if (!hit) return
-
-  _push.copy(hit.normal).multiplyScalar(hit.depth)
-  collisionCapsule.translate(_push)
-  camera.position.x = collisionCapsule.end.x
-  camera.position.z = collisionCapsule.end.z
+  resolveExternalCollisionPosition(camera.position, collisionWorldRef, eyeHeight, collisionCapsule)
 }
 
 export function Player({ active, onReady, onLockChange, onFocused, markersRef, onSelect, playerPosRef, collisionWorldRef }) {
   const { camera, gl } = useThree()
   const move = useRef({ f: 0, b: 0, l: 0, r: 0, run: false })
   const raycaster = useRef(new THREE.Raycaster())
-  const collisionCapsule = useRef(
-    new Capsule(
-      new THREE.Vector3(0, PLAYER_COLLIDER_BOTTOM, 0),
-      new THREE.Vector3(0, CONFIG.player.eyeHeight - PLAYER_HEAD_CLEARANCE, 0),
-      PLAYER_RADIUS,
-    ),
-  )
+  const collisionCapsule = useRef(createPlayerCollisionCapsule())
   const focusedRef = useRef(null)
   const activeRef = useRef(active)
   const didInitRef = useRef(false)

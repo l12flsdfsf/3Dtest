@@ -35,6 +35,7 @@ export default function App() {
   const [volumeOpen, setVolumeOpen] = useState(false)
   const [trophy, setTrophy] = useState(null)
   const [mapHall, setMapHall] = useState(INITIAL_MAP_HALL)
+  const [worldLayout, setWorldLayout] = useState(null)
 
   const frozen = Boolean(selected) || helpOpen || Boolean(trophy)
   mapOpenRef.current = selected?.id === 'hall-map'
@@ -66,20 +67,23 @@ export default function App() {
       assetSrc: RAW_FIGMA_EXPORTS.cPanel,
       scenePreview: RAW_FIGMA_EXPORTS.cPanel,
       description:
-        '\u5f53\u524d\u5c55\u5385\u91c7\u7528\u73af\u5f62\u6e38\u89c8\u52a8\u7ebf\uff0c\u5165\u53e3\u4f4d\u4e8e\u5357\u4fa7\u4e2d\u592e\uff0c\u987a\u65f6\u9488\u53ef\u4f9d\u6b21\u5b8c\u6210\u516d\u4e2a\u4e3b\u9898\u5206\u5385\u7684\u53c2\u89c2\u3002',
+        '\u5f53\u524d\u81ea\u52a8\u5de1\u822a\u4ece\u95e8\u53e3\u51fa\u53d1\uff0c\u5148\u770b\u5165\u53e3\u4fa7\u8363\u8a89\u5899\uff0c\u4f9d\u6b21\u8fdb\u5165\u516d\u4e2a\u4e3b\u9898\u5206\u5385\uff0c\u9014\u7ecf\u5956\u676f\u533a\u4e0e\u8363\u8a89\u7bc7\u7ae0\u540e\u518d\u56de\u5230\u95e8\u53e3\u5faa\u73af\u3002',
       route: [
         '\u5165\u53e3 / \u5c55\u9986\u5927\u5385',
+        '\u8363\u8a89\u5899',
         '\u5173\u6000\u5385',
         '\u5e7f\u64ad\u5385',
         '\u7535\u89c6\u5385',
+        '\u5956\u676f\u533a',
         '\u7535\u5f71\u5385',
         '\u6280\u672f\u8bbe\u5907\u5385',
         '\u5c55\u671b\u5385',
+        '\u8363\u8a89\u7bc7\u7ae0',
       ],
       bullets: [
         '\u70ed\u70b9\u6807\u8bb0\u60ac\u6d6e\u5728\u5206\u5385\u524d\u65b9\uff0c\u53ef\u76f4\u63a5\u70b9\u51fb\u67e5\u770b\u5185\u5bb9\u3002',
         '\u624b\u52a8\u6f2b\u6e38\u66f4\u9002\u5408\u8fd1\u8ddd\u79bb\u67e5\u770b\u5899\u9762\u8d34\u56fe\u4e0e\u5165\u53e3\u5c55\u9879\u3002',
-        '\u81ea\u52a8\u5de1\u822a\u4f1a\u6cbf\u9884\u8bbe\u8def\u5f84\u5b8c\u6210\u4e00\u5708\u6d4f\u89c8\u3002',
+        '\u81ea\u52a8\u5de1\u822a\u4f1a\u5728\u95e8\u53e3\u3001\u5956\u676f\u533a\u548c\u8363\u8a89\u7bc7\u7ae0\u7b49\u8282\u70b9\u77ed\u6682\u505c\u7559\u3002',
       ],
       facts: [
         { label: '\u5206\u5385\u6570\u91cf', value: '6 \u4e2a' },
@@ -215,6 +219,7 @@ export default function App() {
 
   const handleWorldLayout = useCallback((layout) => {
     worldLayoutRef.current = layout
+    setWorldLayout((prev) => (prev === layout ? prev : layout))
 
     setMapHall((prev) => {
       if (!mapOpenRef.current) {
@@ -244,6 +249,7 @@ export default function App() {
         frozen={frozen}
         playerPosRef={playerPosRef}
         onWorldLayout={handleWorldLayout}
+        worldLayout={worldLayout}
       />
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.04),transparent_24%)]" />

@@ -27,6 +27,44 @@ function objectMaterialMatchesHall(object, hallName) {
   return listMaterialNames(object?.material).some((name) => name.includes(hallName))
 }
 
+function objectMatchesLabel(object, label) {
+  return objectNameMatchesHall(object, label) || objectMaterialMatchesHall(object, label)
+}
+
+function buildNamedAnchor(scene, label) {
+  const box = new THREE.Box3()
+  let matched = false
+
+  scene.traverse((object) => {
+    if (object === scene) return
+    if (!objectMatchesLabel(object, label)) return
+
+    const objectBox = new THREE.Box3().setFromObject(object)
+    if (objectBox.isEmpty()) return
+
+    box.union(objectBox)
+    matched = true
+  })
+
+  if (!matched || box.isEmpty()) return null
+
+  const center = new THREE.Vector3()
+  box.getCenter(center)
+
+  return {
+    x: center.x,
+    y: center.y,
+    z: center.z,
+  }
+}
+
+function buildSceneAnchors(scene) {
+  return {
+    honorChapter: buildNamedAnchor(scene, '荣誉篇章'),
+    trophyArea: buildNamedAnchor(scene, '奖杯'),
+  }
+}
+
 function solveLinear3(system, values) {
   const matrix = system.map((row, index) => [...row, values[index]])
   const size = matrix.length
@@ -230,9 +268,11 @@ function getSceneAnalysis(scene) {
   if (cached) return cached
 
   scene.updateMatrixWorld(true)
+  const worldLayout = buildWorldLayout(scene)
+  const anchors = buildSceneAnchors(scene)
   const analysis = {
     collisionWorld: new Octree().fromGraphNode(scene),
-    worldLayout: buildWorldLayout(scene),
+    worldLayout: worldLayout ? { ...worldLayout, anchors } : null,
   }
   sceneAnalysisCache.set(scene, analysis)
   return analysis

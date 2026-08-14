@@ -50,6 +50,11 @@ export function getHallCanonicalCenter(hall) {
   }
 }
 
+export function roomToHallLayoutPosition(hall, [lx, ly, lz]) {
+  if (getHallWorldWall(hall) === 'front') return [hall.center + lx, ly, CORRIDOR_HALF + lz]
+  return [hall.center - lx, ly, -CORRIDOR_HALF - lz]
+}
+
 function applyLayoutTransform(x, z, transform) {
   const xCoefficients = transform?.x
   const zCoefficients = transform?.z
@@ -85,6 +90,41 @@ export function normalizeWorldPositionToHallLayout(x, z, worldLayout) {
   return {
     x: ((x - centerX) * baseHalfWidth) / sourceHalfWidth,
     z: ((z - centerZ) * baseHalfDepth) / sourceHalfDepth,
+  }
+}
+
+export function projectHallLayoutToWorldPosition(x, z, worldLayout) {
+  const xCoefficients = worldLayout?.transform?.x
+  const zCoefficients = worldLayout?.transform?.z
+  const determinant =
+    Array.isArray(xCoefficients) &&
+    xCoefficients.length === 3 &&
+    Array.isArray(zCoefficients) &&
+    zCoefficients.length === 3
+      ? xCoefficients[0] * zCoefficients[1] - xCoefficients[1] * zCoefficients[0]
+      : 0
+
+  if (Math.abs(determinant) > 1e-8) {
+    const canonicalX = x - xCoefficients[2]
+    const canonicalZ = z - zCoefficients[2]
+    return {
+      x: (zCoefficients[1] * canonicalX - xCoefficients[1] * canonicalZ) / determinant,
+      z: (-zCoefficients[0] * canonicalX + xCoefficients[0] * canonicalZ) / determinant,
+    }
+  }
+
+  if (!worldLayout) return { x, z }
+
+  const baseHalfWidth = CONFIG.hall.width / 2
+  const baseHalfDepth = CONFIG.hall.depth / 2
+  const sourceHalfWidth = worldLayout.halfWidth || baseHalfWidth
+  const sourceHalfDepth = worldLayout.halfDepth || baseHalfDepth
+  const centerX = worldLayout.centerX ?? 0
+  const centerZ = worldLayout.centerZ ?? 0
+
+  return {
+    x: centerX + (x * sourceHalfWidth) / baseHalfWidth,
+    z: centerZ + (z * sourceHalfDepth) / baseHalfDepth,
   }
 }
 
