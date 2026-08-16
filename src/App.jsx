@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Experience } from './experience/Experience.jsx'
 import { getAutoRoamStartPose } from './data/autoRoam.js'
+import { CONFIG } from './data/config.js'
 import { HOTSPOTS } from './data/hotspots.js'
 import { hallAtWorldPosition } from './data/halls.js'
 import { RAW_FIGMA_EXPORTS } from './data/assets.js'
 import { TopBar } from './ui/TopBar.jsx'
+import { FullscreenButton } from './ui/FullscreenButton.jsx'
 import { HotspotDrawer } from './ui/HotspotDrawer.jsx'
 import { HelpOverlay } from './ui/RoamOverlay.jsx'
 import { TrophyModal } from './ui/TrophyModal.jsx'
@@ -17,6 +19,8 @@ const INITIAL_MAP_HALL = {
 
 const INITIAL_START_POSE = getAutoRoamStartPose()
 
+const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
+
 const PANEL_ASSETS_TO_PRELOAD = [
   RAW_FIGMA_EXPORTS.cPanel,
   RAW_FIGMA_EXPORTS.cPanel1,
@@ -26,6 +30,7 @@ const PANEL_ASSETS_TO_PRELOAD = [
 export default function App() {
   const controlsRef = useRef(null)
   const resumeModeRef = useRef('roam')
+  const autoHelpShownRef = useRef(false)
   const playerPosRef = useRef({
     x: INITIAL_START_POSE.position.x,
     z: INITIAL_START_POSE.position.z,
@@ -60,6 +65,24 @@ export default function App() {
       })
     }
   }, [])
+
+  // 外部模型模式下，worldLayout 有值表示模型加载完成、场景已可见；内置展厅则立即可用
+  const sceneReady = !USING_EXTERNAL_MODEL || Boolean(worldLayout)
+
+  useEffect(() => {
+    // 场景（外部模型）加载完成后再弹出操作帮助，避免刷新时页面还没加载完就弹出
+    if (!sceneReady || autoHelpShownRef.current) {
+      return
+    }
+
+    const timer = window.setTimeout(() => {
+      autoHelpShownRef.current = true
+      setMode('inspect')
+      setHelpOpen(true)
+    }, 300)
+
+    return () => window.clearTimeout(timer)
+  }, [sceneReady])
 
   const mapPanel = useMemo(
     () => ({
@@ -275,6 +298,8 @@ export default function App() {
         onVolumeClose={closeVolumePanel}
         onExit={exitExperience}
       />
+
+      <FullscreenButton />
 
       <HelpOverlay open={helpOpen} onClose={resumePreviousMode} autoActive={mode === 'auto'} />
       <HotspotDrawer hotspot={selected} currentHall={mapHall} onClose={closeDrawer} />
