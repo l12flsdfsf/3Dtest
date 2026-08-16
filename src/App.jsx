@@ -7,6 +7,7 @@ import { hallAtWorldPosition } from './data/halls.js'
 import { RAW_FIGMA_EXPORTS } from './data/assets.js'
 import { TopBar } from './ui/TopBar.jsx'
 import { FullscreenButton } from './ui/FullscreenButton.jsx'
+import { LoadingOverlay } from './ui/LoadingOverlay.jsx'
 import { HotspotDrawer } from './ui/HotspotDrawer.jsx'
 import { HelpOverlay } from './ui/RoamOverlay.jsx'
 import { TrophyModal } from './ui/TrophyModal.jsx'
@@ -282,6 +283,8 @@ export default function App() {
       />
 
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.04),transparent_24%)]" />
+
+      <LoadingOverlay visible={!sceneReady} ready={sceneReady} />
 
       <TopBar
         autoActive={mode === 'auto'}
