@@ -13,19 +13,19 @@ const ENTRANCE_HALL = { id: 'entrance', label: '主入口' }
 
 // 房间内本地坐标锚点：入口在 z=0（朝向中央走廊），后墙在 z=ROOM_DEPTH。
 // “进门右边”取本地 -x 侧墙——前厅朝 +z、后厅朝 -z 进入时，玩家右手方向均为本地 -x。
-// 该坐标在 Room 组内直接使用（组已处理前/后墙的旋转），热点位置由 roomToWorld 投影到世界坐标。
+// 该坐标在 Room 组内直接使用（组已处理前/后墙的旋转），位置由 roomToWorld 投影到世界坐标。
 export const LOCAL_ANCHORS = {
   theme: [-ROOM_HALF_X + 0.55, 2.15, 1.85], // 主题展板中心：靠近 -x 墙（进门右侧），离墙留间隙
-  themeHotspot: [-ROOM_HALF_X + 1.15, 2.15, 1.85], // 主题热点：浮在展板前方（室内侧），避免穿墙
+  themeHotspot: [-ROOM_HALF_X + 1.15, 2.15, 1.85], // 自动漫游注视点：主题展板前方（室内侧）
   themeSize: [1.92, 2.72], // (沿 z 的宽, 沿 y 的高)
   docPanels: [
     [-1.78, 2.12, ROOM_DEPTH - 0.22],
     [1.78, 2.12, ROOM_DEPTH - 0.22],
   ],
   docSize: [2.5, 2.2], // (沿 x 的宽, 沿 y 的高)
-  docHotspot: [0, 2.12, ROOM_DEPTH - 0.95], // 文献热点：两块展板之间、离后墙留间隙
+  docHotspot: [0, 2.12, ROOM_DEPTH - 0.95], // 自动漫游注视点：两块文献展板之间
   model: [1.45, 0, 4.4], // 实物模型展台中心（底面）
-  modelHotspot: [1.45, 1.35, 4.4],
+  modelHotspot: [1.45, 1.35, 4.4], // 自动漫游注视点：展台模型上方
 }
 
 // 展台碰撞半边长（Player.jsx 用）
@@ -379,3 +379,52 @@ export const HALLS = [
 ]
 
 export const HALL_NAMES = HALLS.map((hall) => hall.name)
+
+// transform 是「模型坐标 -> canonical」的仿射，这里求逆：把 canonical 位置映射回模型世界坐标
+function invertLayoutTransform(x, z, transform) {
+  const xCoefficients = transform?.x
+  const zCoefficients = transform?.z
+
+  if (
+    !Array.isArray(xCoefficients) ||
+    xCoefficients.length !== 3 ||
+    !Array.isArray(zCoefficients) ||
+    zCoefficients.length !== 3
+  ) {
+    return null
+  }
+
+  const [a, b, e] = xCoefficients
+  const [c, d, f] = zCoefficients
+  const det = a * d - b * c
+  if (Math.abs(det) < 1e-8) return null
+
+  const dx = x - e
+  const dz = z - f
+  return { x: (d * dx - b * dz) / det, z: (-c * dx + a * dz) / det }
+}
+
+function toModelPosition(x, z, worldLayout) {
+  return invertLayoutTransform(x, z, worldLayout?.transform) ?? { x, z }
+}
+
+// 地图点击传送：展厅入口（厅前走廊处，模型世界坐标）
+export function getHallEntrancePosition(hallId, worldLayout) {
+  const hall = HALLS.find((h) => h.id === hallId)
+  if (!hall) return null
+
+  const isRightSide = getHallWorldWall(hall) === 'front'
+  const canonicalZ = isRightSide ? CORRIDOR_HALF - 1.5 : -CORRIDOR_HALF + 1.5
+  const position = toModelPosition(hall.center, canonicalZ, worldLayout)
+  return { x: position.x, z: position.z, y: CONFIG.player.eyeHeight }
+}
+
+// 传送后的注视点：展厅中心
+export function getHallCenterPosition(hallId, worldLayout) {
+  const hall = HALLS.find((h) => h.id === hallId)
+  if (!hall) return null
+
+  const canonical = getHallCanonicalCenter(hall)
+  const position = toModelPosition(canonical.x, canonical.z, worldLayout)
+  return { x: position.x, y: CONFIG.player.eyeHeight, z: position.z }
+}

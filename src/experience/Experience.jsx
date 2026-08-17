@@ -3,7 +3,6 @@ import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { Lights } from './Lights.jsx'
 import { Hall } from './Hall.jsx'
-import { Hotspot } from './Hotspot.jsx'
 import { Player } from './Player.jsx'
 import { GltfModel } from './GltfModel.jsx'
 import { AutoRoamCamera } from './AutoRoamCamera.jsx'
@@ -48,18 +47,15 @@ function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usin
 
 export function Experience({
   mode,
-  hotspots,
-  onSelect,
+  onSelectPicture,
   onSelectTrophy,
   onReady,
   onLockChange,
-  onFocused,
   frozen,
   playerPosRef,
   onWorldLayout,
   worldLayout,
 }) {
-  const markersRef = useRef([])
   const collisionWorldRef = useRef(null)
   const isManualRoam = mode === 'roam'
   const isAutoRoam = mode === 'auto'
@@ -102,17 +98,12 @@ export function Experience({
             url={CONFIG.modelUrl}
             collisionWorldRef={collisionWorldRef}
             onWorldLayout={onWorldLayout}
+            onSelectPicture={onSelectPicture}
           />
         ) : (
           <Hall />
         )}
       </Suspense>
-
-      {!usingExternalModel
-        ? hotspots.map((hotspot) => (
-            <Hotspot key={hotspot.id} data={hotspot} markersRef={markersRef} onSelect={onSelect} />
-          ))
-        : null}
 
       {!usingExternalModel ? <TrophyDisplay onSelectTrophy={onSelectTrophy} /> : null}
 
@@ -128,9 +119,6 @@ export function Experience({
         active={isManualRoam && !frozen}
         onReady={onReady}
         onLockChange={onLockChange}
-        onFocused={onFocused}
-        markersRef={markersRef}
-        onSelect={onSelect}
         playerPosRef={playerPosRef}
         collisionWorldRef={collisionWorldRef}
         worldLayout={worldLayout}
@@ -138,7 +126,6 @@ export function Experience({
 
       {isAutoRoam && !frozen ? (
         <AutoRoamCamera
-          onFocused={onFocused}
           worldLayout={worldLayout}
           playerPosRef={playerPosRef}
           collisionWorldRef={collisionWorldRef}

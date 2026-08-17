@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
 import { Octree } from 'three/examples/jsm/math/Octree.js'
 import { CONFIG } from '../data/config.js'
 import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
+import { findPictureTexture, textureToPhoto } from './pictureTexture.js'
 
 function listMaterialNames(material) {
   if (!material) return []
@@ -278,9 +279,17 @@ function getSceneAnalysis(scene) {
   return analysis
 }
 
-export function GltfModel({ url, collisionWorldRef, onWorldLayout }) {
+export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPicture }) {
   const { scene } = useGLTF(url)
   const analysis = useMemo(() => getSceneAnalysis(scene), [scene])
+  const mountedRef = useRef(true)
+
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
 
   useEffect(() => {
     if (!collisionWorldRef) return undefined
@@ -295,5 +304,37 @@ export function GltfModel({ url, collisionWorldRef, onWorldLayout }) {
     }
   }, [analysis, collisionWorldRef, onWorldLayout])
 
-  return <primitive object={scene} />
+  // 点击墙上照片/展板/屏幕：从命中网格的材质里取出图片贴图，导出原图交给查看器。
+  // R3F 会沿射线对每个命中对象各派发一次事件，这里只处理最近的一次，
+  // 并沿命中链（近→远）逐个尝试：有些贴片（如装饰板）视觉上不可见却挡在最近处，
+  // 其纯色区域裁不出图片时应继续尝试它背后真正显示照片的网格。
+  const handlePictureClick = async (event) => {
+    if (event.delta > 6) return // 拖拽旋转视角的抬起不视为点击
+
+    const nearest = event.intersections?.[0]
+    if (nearest && nearest.object !== event.object) return
+
+    event.stopPropagation()
+
+    try {
+      const hits = (event.intersections || []).slice(0, 4)
+      for (const hit of hits) {
+        const picture = findPictureTexture(hit.object, hit.face)
+        if (!picture?.texture) continue
+
+        const photo = await textureToPhoto(picture.texture, picture.name, {
+          board: picture.board,
+          uv: hit.uv,
+        })
+        if (!photo) continue // 板类点击处无内容，尝试更远的命中
+
+        if (mountedRef.current) onSelectPicture?.(photo)
+        break
+      }
+    } catch (error) {
+      console.error('导出图片贴图失败', error)
+    }
+  }
+
+  return <primitive object={scene} onClick={handlePictureClick} />
 }

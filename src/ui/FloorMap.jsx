@@ -97,7 +97,7 @@ function getMarkerAnchor(currentHall, roomById) {
   return { cx: sx(0), cy: sy(0) }
 }
 
-export function FloorMap({ currentHall }) {
+export function FloorMap({ currentHall, onHallClick }) {
   const id = currentHall?.id ?? 'corridor'
   const rooms = buildRooms()
   const roomById = Object.fromEntries(rooms.map((room) => [room.id, room]))
@@ -109,6 +109,14 @@ export function FloorMap({ currentHall }) {
   const anchor = getMarkerAnchor(currentHall, roomById)
   const markerX = anchor.cx + CURRENT_MARKER_OFFSET.x
   const markerY = anchor.cy + CURRENT_MARKER_OFFSET.y
+
+  const handleRoomClick = (hallId, event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (onHallClick && hallId !== id) {
+      onHallClick(hallId)
+    }
+  }
 
   return (
     <div
@@ -153,17 +161,30 @@ export function FloorMap({ currentHall }) {
 
           {rooms.map((room) => {
             const here = id === room.id
+            const clickable = Boolean(onHallClick) && !here
 
             return (
-              <rect
-                key={room.id}
-                x={room.x}
-                y={room.y}
-                width={room.w}
-                height={room.h}
-                fill={here ? '#dbeafe' : '#ffffff'}
-                fillOpacity={here ? 0.9 : 0.7}
-              />
+              <g key={room.id}>
+                <rect
+                  x={room.x}
+                  y={room.y}
+                  width={room.w}
+                  height={room.h}
+                  fill={here ? '#dbeafe' : '#ffffff'}
+                  fillOpacity={here ? 0.9 : 0.7}
+                />
+                {clickable ? (
+                  <rect
+                    x={room.x}
+                    y={room.y}
+                    width={room.w}
+                    height={room.h}
+                    fill="transparent"
+                    style={{ cursor: 'pointer' }}
+                    onClick={(event) => handleRoomClick(room.id, event)}
+                  />
+                ) : null}
+              </g>
             )
           })}
         </g>

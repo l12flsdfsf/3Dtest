@@ -133,7 +133,7 @@ function resolveFrameTarget(route, index, nextIndex, progress, position, fallbac
   return _desiredTarget.copy(fallbackTarget)
 }
 
-export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collisionWorldRef }) {
+export function AutoRoamCamera({ worldLayout, playerPosRef, collisionWorldRef }) {
   const { camera } = useThree()
   const currentIndexRef = useRef(0)
   const segmentProgressRef = useRef(0)
@@ -163,8 +163,7 @@ export function AutoRoamCamera({ onFocused, worldLayout, playerPosRef, collision
     lookTargetRef.current.copy(_desiredTarget)
     _lookMatrix.lookAt(camera.position, lookTargetRef.current, camera.up)
     camera.quaternion.setFromRotationMatrix(_lookMatrix)
-    onFocused?.(null)
-  }, [camera, collisionWorldRef, onFocused, route])
+  }, [camera, collisionWorldRef, route])
 
   useFrame((_, delta) => {
     if (route.length < 2) return

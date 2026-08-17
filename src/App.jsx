@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Experience } from './experience/Experience.jsx'
 import { getAutoRoamStartPose } from './data/autoRoam.js'
 import { CONFIG } from './data/config.js'
-import { HOTSPOTS } from './data/hotspots.js'
-import { hallAtWorldPosition } from './data/halls.js'
+import { hallAtWorldPosition, getHallEntrancePosition, getHallCenterPosition } from './data/halls.js'
 import { RAW_FIGMA_EXPORTS } from './data/assets.js'
 import { TopBar } from './ui/TopBar.jsx'
 import { FullscreenButton } from './ui/FullscreenButton.jsx'
 import { LoadingOverlay } from './ui/LoadingOverlay.jsx'
-import { HotspotDrawer } from './ui/HotspotDrawer.jsx'
+import { MapOverlay } from './ui/MapOverlay.jsx'
 import { HelpOverlay } from './ui/RoamOverlay.jsx'
 import { TrophyModal } from './ui/TrophyModal.jsx'
+import { PictureViewer } from './ui/PictureViewer.jsx'
 
 const INITIAL_MAP_HALL = {
   id: 'corridor',
@@ -38,19 +38,20 @@ export default function App() {
   })
   const worldLayoutRef = useRef(null)
   const mapOpenRef = useRef(false)
+  const pictureUrlRef = useRef(null)
   const [mode, setMode] = useState('roam')
-  const [selected, setSelected] = useState(null)
+  const [mapOpen, setMapOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const [locked, setLocked] = useState(false)
-  const [focused, setFocused] = useState(null)
   const [volume, setVolume] = useState(60)
   const [volumeOpen, setVolumeOpen] = useState(false)
   const [trophy, setTrophy] = useState(null)
+  const [picture, setPicture] = useState(null)
   const [mapHall, setMapHall] = useState(INITIAL_MAP_HALL)
   const [worldLayout, setWorldLayout] = useState(null)
 
-  const frozen = Boolean(selected) || helpOpen || Boolean(trophy)
-  mapOpenRef.current = selected?.id === 'hall-map'
+  const frozen = mapOpen || helpOpen || Boolean(trophy) || Boolean(picture)
+  mapOpenRef.current = mapOpen
 
   useEffect(() => {
     const images = PANEL_ASSETS_TO_PRELOAD.map((src) => {
@@ -85,45 +86,6 @@ export default function App() {
     return () => window.clearTimeout(timer)
   }, [sceneReady])
 
-  const mapPanel = useMemo(
-    () => ({
-      id: 'hall-map',
-      code: 'MAP',
-      title: '\u5c55\u5385\u5730\u56fe',
-      subtitle: '\u67e5\u770b\u516d\u4e2a\u5206\u5385\u7684\u4f4d\u7f6e\u4e0e\u63a8\u8350\u6e38\u89c8\u8def\u7ebf',
-      tag: '\u5730\u56fe',
-      kind: 'map',
-      color: '#2563eb',
-      assetSrc: RAW_FIGMA_EXPORTS.cPanel,
-      scenePreview: RAW_FIGMA_EXPORTS.cPanel,
-      description:
-        '\u5f53\u524d\u81ea\u52a8\u5de1\u822a\u4ece\u95e8\u53e3\u51fa\u53d1\uff0c\u5148\u770b\u5165\u53e3\u4fa7\u8363\u8a89\u5899\uff0c\u4f9d\u6b21\u8fdb\u5165\u516d\u4e2a\u4e3b\u9898\u5206\u5385\uff0c\u9014\u7ecf\u5956\u676f\u533a\u4e0e\u8363\u8a89\u7bc7\u7ae0\u540e\u518d\u56de\u5230\u95e8\u53e3\u5faa\u73af\u3002',
-      route: [
-        '\u5165\u53e3 / \u5c55\u9986\u5927\u5385',
-        '\u8363\u8a89\u5899',
-        '\u5173\u6000\u5385',
-        '\u5e7f\u64ad\u5385',
-        '\u7535\u89c6\u5385',
-        '\u5956\u676f\u533a',
-        '\u7535\u5f71\u5385',
-        '\u6280\u672f\u8bbe\u5907\u5385',
-        '\u5c55\u671b\u5385',
-        '\u8363\u8a89\u7bc7\u7ae0',
-      ],
-      bullets: [
-        '\u70ed\u70b9\u6807\u8bb0\u60ac\u6d6e\u5728\u5206\u5385\u524d\u65b9\uff0c\u53ef\u76f4\u63a5\u70b9\u51fb\u67e5\u770b\u5185\u5bb9\u3002',
-        '\u624b\u52a8\u6f2b\u6e38\u66f4\u9002\u5408\u8fd1\u8ddd\u79bb\u67e5\u770b\u5899\u9762\u8d34\u56fe\u4e0e\u5165\u53e3\u5c55\u9879\u3002',
-        '\u81ea\u52a8\u5de1\u822a\u4f1a\u5728\u95e8\u53e3\u3001\u5956\u676f\u533a\u548c\u8363\u8a89\u7bc7\u7ae0\u7b49\u8282\u70b9\u77ed\u6682\u505c\u7559\u3002',
-      ],
-      facts: [
-        { label: '\u5206\u5385\u6570\u91cf', value: '6 \u4e2a' },
-        { label: '\u6e38\u89c8\u65b9\u5f0f', value: '\u624b\u52a8 / \u81ea\u52a8' },
-        { label: '\u5f53\u524d\u5165\u53e3', value: '\u5357\u4fa7\u4e2d\u8f74' },
-      ],
-    }),
-    [],
-  )
-
   const lockManualRoam = useCallback(() => {
     setMode('roam')
     window.requestAnimationFrame(() => {
@@ -133,9 +95,7 @@ export default function App() {
 
   const enterManualRoam = useCallback(() => {
     resumeModeRef.current = 'roam'
-    setSelected(null)
     setHelpOpen(false)
-    setFocused(null)
     lockManualRoam()
   }, [lockManualRoam])
 
@@ -143,9 +103,7 @@ export default function App() {
     resumeModeRef.current = 'auto'
     controlsRef.current?.unlock?.()
     setLocked(false)
-    setSelected(null)
     setHelpOpen(false)
-    setFocused(null)
     setMode('auto')
   }, [])
 
@@ -156,14 +114,12 @@ export default function App() {
       }
       controlsRef.current?.unlock?.()
       setLocked(false)
-      setFocused(null)
       setMode(nextMode)
     },
     [mode],
   )
 
   const resumePreviousMode = useCallback(() => {
-    setSelected(null)
     setHelpOpen(false)
 
     if (resumeModeRef.current === 'auto') {
@@ -189,13 +145,17 @@ export default function App() {
     }
 
     pauseRoam('inspect')
-    setSelected(null)
     setHelpOpen(true)
   }, [helpOpen, pauseRoam, resumePreviousMode])
 
+  const closeMap = useCallback(() => {
+    setMapOpen(false)
+    resumePreviousMode()
+  }, [resumePreviousMode])
+
   const openMap = useCallback(() => {
-    if (selected?.id === mapPanel.id) {
-      resumePreviousMode()
+    if (mapOpen) {
+      closeMap()
       return
     }
 
@@ -208,26 +168,50 @@ export default function App() {
     })
     pauseRoam('inspect')
     setHelpOpen(false)
-    setSelected(mapPanel)
-  }, [mapPanel, pauseRoam, resumePreviousMode, selected?.id])
+    setMapOpen(true)
+  }, [closeMap, mapOpen, pauseRoam])
 
-  const openHotspot = useCallback((hotspot) => {
-    controlsRef.current?.unlock?.()
-    setFocused(null)
+  // 地图点击分厅：传送到对应展厅入口、朝向厅内，并恢复手动漫游
+  const teleportToHall = useCallback((hallId) => {
+    const layout = worldLayoutRef.current
+    const entrance = getHallEntrancePosition(hallId, layout)
+    if (!entrance) return
+
+    controlsRef.current?.teleportTo?.(entrance, getHallCenterPosition(hallId, layout))
+    setMapHall({
+      ...hallAtWorldPosition(entrance.x, entrance.z, layout),
+      worldLayout: layout,
+    })
+    setMapOpen(false)
     setHelpOpen(false)
-    setSelected(hotspot)
+    setMode('roam')
+    window.requestAnimationFrame(() => {
+      controlsRef.current?.lock?.()
+    })
   }, [])
 
   const openTrophy = useCallback((item) => {
     controlsRef.current?.unlock?.()
-    setFocused(null)
-    setSelected(null)
     setHelpOpen(false)
     setTrophy(item)
   }, [])
 
-  const closeDrawer = useCallback(() => {
-    setSelected(null)
+  // 点击墙上照片：暂停漫游弹出可缩放查看器，关闭后回到原漫游模式并回收 blob URL
+  const openPicture = useCallback((photo) => {
+    controlsRef.current?.unlock?.()
+    setHelpOpen(false)
+
+    if (pictureUrlRef.current) URL.revokeObjectURL(pictureUrlRef.current)
+    pictureUrlRef.current = photo.url
+    setPicture(photo)
+  }, [])
+
+  const closePicture = useCallback(() => {
+    if (pictureUrlRef.current) {
+      URL.revokeObjectURL(pictureUrlRef.current)
+      pictureUrlRef.current = null
+    }
+    setPicture(null)
     resumePreviousMode()
   }, [resumePreviousMode])
 
@@ -241,9 +225,7 @@ export default function App() {
     controlsRef.current?.unlock?.()
     resumeModeRef.current = 'roam'
     setLocked(false)
-    setSelected(null)
     setHelpOpen(false)
-    setFocused(null)
     setMode('inspect')
   }, [])
 
@@ -268,14 +250,12 @@ export default function App() {
     <div className="relative h-full w-full overflow-hidden bg-[#ebe5dc]">
       <Experience
         mode={mode}
-        hotspots={HOTSPOTS}
-        onSelect={openHotspot}
+        onSelectPicture={openPicture}
         onSelectTrophy={openTrophy}
         onReady={(controls) => {
           controlsRef.current = controls
         }}
         onLockChange={setLocked}
-        onFocused={setFocused}
         frozen={frozen}
         playerPosRef={playerPosRef}
         onWorldLayout={handleWorldLayout}
@@ -289,7 +269,7 @@ export default function App() {
       <TopBar
         autoActive={mode === 'auto'}
         helpActive={helpOpen}
-        mapActive={selected?.id === mapPanel.id}
+        mapActive={mapOpen}
         musicActive={volume > 0}
         volume={volume}
         volumeOpen={volumeOpen}
@@ -305,8 +285,14 @@ export default function App() {
       <FullscreenButton />
 
       <HelpOverlay open={helpOpen} onClose={resumePreviousMode} autoActive={mode === 'auto'} />
-      <HotspotDrawer hotspot={selected} currentHall={mapHall} onClose={closeDrawer} />
+      <MapOverlay
+        open={mapOpen}
+        currentHall={mapHall}
+        onClose={closeMap}
+        onHallClick={teleportToHall}
+      />
       <TrophyModal trophy={trophy} onClose={() => setTrophy(null)} />
+      <PictureViewer key={picture?.url} photo={picture} onClose={closePicture} />
     </div>
   )
 }

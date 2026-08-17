@@ -16,67 +16,6 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-.hotspot-pin {
-  pointer-events: auto;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px 6px 6px;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.92);
-  background: rgba(255, 255, 255, 0.92);
-  color: #0f172a;
-  white-space: nowrap;
-  cursor: pointer;
-  box-shadow: 0 14px 34px rgba(15, 23, 42, 0.14);
-  transform: translateY(-10px);
-  transition: transform 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
-}
-
-.hotspot-pin:hover {
-  transform: translateY(-10px) scale(1.03);
-  box-shadow: 0 18px 38px rgba(15, 23, 42, 0.2);
-}
-
-.hotspot-pin__code {
-  display: inline-flex;
-  height: 24px;
-  min-width: 24px;
-  align-items: center;
-  justify-content: center;
-  padding: 0 7px;
-  border-radius: 999px;
-  background: var(--c, #ffffff);
-  color: #0f172a;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.hotspot-pin__label {
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.hotspot-modal .ant-modal-container {
-  border-radius: 32px;
-  box-shadow: 0 36px 120px rgba(15, 23, 42, 0.2);
-  overflow: hidden;
-}
-
-.hotspot-modal .ant-modal-close {
-  top: 18px;
-  inset-inline-end: 18px;
-  width: 36px;
-  height: 36px;
-  border-radius: 999px;
-  background: rgba(241, 245, 249, 0.94);
-  color: #334155;
-}
-
-.hotspot-modal .ant-modal-close:hover {
-  background: rgba(226, 232, 240, 0.98);
-}
-
 .nav-button {
   border: 1px solid rgba(203, 213, 225, 0.8);
   background: rgba(255, 255, 255, 0.78);
@@ -107,33 +46,4 @@ body {
 .nav-button--danger:hover {
   border-color: rgba(239, 68, 68, 0.4);
   color: #b91c1c;
-}
-
-.crosshair {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 22px;
-  height: 22px;
-  transform: translate(-50%, -50%);
-}
-
-.crosshair__ring {
-  position: absolute;
-  inset: 0;
-  border: 1px solid rgba(255, 255, 255, 0.88);
-  border-radius: 999px;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.22);
-}
-
-.crosshair__dot {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 4px;
-  height: 4px;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  background: #ffffff;
-  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.3);
 }
