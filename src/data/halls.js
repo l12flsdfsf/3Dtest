@@ -379,3 +379,41 @@ export const HALLS = [
 ]
 
 export const HALL_NAMES = HALLS.map((hall) => hall.name)
+
+
+// 获取展厅入口位置（用于地图传送）
+export function getHallEntrancePosition(hallId, worldLayout) {
+  const hall = HALLS.find(h => h.id === hallId)
+  if (!hall) return null
+
+  const worldWall = getHallWorldWall(hall)
+  const isRightSide = worldWall === 'front'
+  const corridorHalf = CONFIG.hall.corridorHalf ?? 4
+
+  // 展厅入口位置：位于展厅前面的走廊处
+  const entranceZ = isRightSide ? corridorHalf - 1.5 : -corridorHalf + 1.5
+  const entranceX = hall.center
+
+  // 对于外部模型，进行坐标转换
+  if (worldLayout && worldLayout.transform) {
+    const xCoefficients = worldLayout.transform.x
+    const zCoefficients = worldLayout.transform.z
+
+    if (Array.isArray(xCoefficients) && xCoefficients.length === 3 &&
+        Array.isArray(zCoefficients) && zCoefficients.length === 3) {
+      const transformedX = xCoefficients[0] * entranceX + xCoefficients[1] * entranceZ + xCoefficients[2]
+      const transformedZ = zCoefficients[0] * entranceX + zCoefficients[1] * entranceZ + zCoefficients[2]
+      return {
+        x: transformedX,
+        z: transformedZ,
+        y: CONFIG.player.eyeHeight
+      }
+    }
+  }
+
+  return {
+    x: entranceX,
+    z: entranceZ,
+    y: CONFIG.player.eyeHeight
+  }
+}

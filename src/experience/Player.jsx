@@ -149,12 +149,34 @@ export function Player({
     [onLockChange],
   )
 
+  const teleportTo = useCallback((position) => {
+    camera.up.set(0, 1, 0)
+    camera.position.set(position.x, position.y, position.z)
+
+    if (USING_EXTERNAL_MODEL) {
+      resolveExternalCollision(camera, collisionWorldRef, CONFIG.player.eyeHeight, collisionCapsule.current)
+    }
+
+    const target = new THREE.Vector3(position.x, position.y, position.z + 5)
+    camera.lookAt(target)
+    euler.current.setFromQuaternion(camera.quaternion)
+
+    if (playerPosRef) {
+      playerPosRef.current.x = camera.position.x
+      playerPosRef.current.z = camera.position.z
+    }
+
+    spawnPositionRef.current = camera.position.clone()
+    hasInteractedSinceSpawnRef.current = true
+  }, [camera, collisionWorldRef, playerPosRef])
+
   useEffect(() => {
     onReady?.({
       lock: () => setRoaming(true),
       unlock: () => setRoaming(false),
+      teleportTo,
     })
-  }, [onReady, setRoaming])
+  }, [onReady, setRoaming, teleportTo])
 
   useEffect(() => {
     const setKey = (code, value) => {

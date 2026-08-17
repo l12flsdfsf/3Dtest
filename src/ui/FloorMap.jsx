@@ -97,7 +97,7 @@ function getMarkerAnchor(currentHall, roomById) {
   return { cx: sx(0), cy: sy(0) }
 }
 
-export function FloorMap({ currentHall }) {
+export function FloorMap({ currentHall, onHallClick }) {
   const id = currentHall?.id ?? 'corridor'
   const rooms = buildRooms()
   const roomById = Object.fromEntries(rooms.map((room) => [room.id, room]))
@@ -110,15 +110,23 @@ export function FloorMap({ currentHall }) {
   const markerX = anchor.cx + CURRENT_MARKER_OFFSET.x
   const markerY = anchor.cy + CURRENT_MARKER_OFFSET.y
 
+  const handleRoomClick = (hallId, event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    if (onHallClick && hallId !== id) {
+      onHallClick(hallId)
+    }
+  }
+
   return (
     <div
-      className="relative mx-auto"
+      className='relative mx-auto'
       style={{ height: 'min(48vh, 480px)', aspectRatio: '1 / 1' }}
     >
       <svg
         viewBox={`0 0 ${SIZE} ${SIZE}`}
-        className="absolute inset-0 h-full w-full"
-        role="img"
+        className='absolute inset-0 h-full w-full'
+        role='img'
         aria-label={'\u5c55\u5385\u5e73\u9762\u56fe'}
       >
         <defs>
@@ -139,7 +147,7 @@ export function FloorMap({ currentHall }) {
             y={FRAME_INSET}
             width={SIZE - FRAME_INSET * 2}
             height={SIZE - FRAME_INSET * 2}
-            fill="#ffffff"
+            fill='#ffffff'
           />
 
           <rect
@@ -147,23 +155,37 @@ export function FloorMap({ currentHall }) {
             y={MAP_INSET}
             width={sx(corridorHalf) - sx(-corridorHalf)}
             height={DRAW_SIZE}
-            fill="#eef2f7"
+            fill='#eef2f7'
             opacity={0.5}
           />
 
           {rooms.map((room) => {
             const here = id === room.id
+            const isClickable = onHallClick && !here
 
             return (
-              <rect
-                key={room.id}
-                x={room.x}
-                y={room.y}
-                width={room.w}
-                height={room.h}
-                fill={here ? '#dbeafe' : '#ffffff'}
-                fillOpacity={here ? 0.9 : 0.7}
-              />
+              <g key={room.id}>
+                <rect
+                  x={room.x}
+                  y={room.y}
+                  width={room.w}
+                  height={room.h}
+                  fill={here ? '#dbeafe' : '#ffffff'}
+                  fillOpacity={here ? 0.9 : 0.7}
+                />
+                {/* ¿Éµã»÷ÇøÓò - Í¸Ã÷¾ØÐÎ */}
+                {isClickable && (
+                  <rect
+                    x={room.x}
+                    y={room.y}
+                    width={room.w}
+                    height={room.h}
+                    fill='transparent'
+                    style={{ cursor: 'pointer' }}
+                    onClick={(e) => handleRoomClick(room.id, e)}
+                  />
+                )}
+              </g>
             )
           })}
         </g>
@@ -174,18 +196,18 @@ export function FloorMap({ currentHall }) {
           width={SIZE - FRAME_INSET * 2}
           height={SIZE - FRAME_INSET * 2}
           rx={MAP_RADIUS}
-          fill="none"
-          stroke="#cbd5e1"
+          fill='none'
+          stroke='#cbd5e1'
           strokeWidth={1.5}
         />
 
         <text
           x={sx(0)}
           y={sy(0)}
-          textAnchor="middle"
-          dominantBaseline="middle"
+          textAnchor='middle'
+          dominantBaseline='middle'
           fontSize={11}
-          fill="#94a3b8"
+          fill='#94a3b8'
         >
           {'\u5c55\u9986\u5927\u5385'}
         </text>
@@ -215,11 +237,12 @@ export function FloorMap({ currentHall }) {
               key={room.id}
               x={room.cx}
               y={room.cy}
-              textAnchor="middle"
-              dominantBaseline="middle"
+              textAnchor='middle'
+              dominantBaseline='middle'
               fontSize={12}
-              fill="#334155"
+              fill='#334155'
               fontWeight={here ? 700 : 600}
+              style={{ pointerEvents: 'none' }}
             >
               {room.name}
             </text>
@@ -229,21 +252,21 @@ export function FloorMap({ currentHall }) {
         <text
           x={sx(0)}
           y={SIZE - 26}
-          textAnchor="middle"
+          textAnchor='middle'
           fontSize={11}
-          fill="#64748b"
+          fill='#64748b'
           fontWeight={600}
         >
           {'\u5165\u53e3'}
         </text>
         <path
           d={`M ${sx(0) - 7} ${SIZE - 20} L ${sx(0) + 7} ${SIZE - 20} L ${sx(0)} ${SIZE - 10} Z`}
-          fill="#94a3b8"
+          fill='#94a3b8'
         />
 
         <g>
-          <circle cx={markerX} cy={markerY} r={11} fill="#2563eb" opacity={0.16} />
-          <circle cx={markerX} cy={markerY} r={5} fill="#2563eb" />
+          <circle cx={markerX} cy={markerY} r={11} fill='#2563eb' opacity={0.16} />
+          <circle cx={markerX} cy={markerY} r={5} fill='#2563eb' />
         </g>
       </svg>
     </div>

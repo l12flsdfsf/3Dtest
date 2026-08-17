@@ -1,4 +1,4 @@
-import { defineConfig } from 'vite'
+﻿import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
@@ -11,7 +11,16 @@ export default defineConfig({
     host: true,
     port: 5173,
     watch: {
-      ignored: ['**/.edge-headless/**'],
+      ignored: ['**/.edge-headless/**', '**/*.temp'],
     },
+    hmr: {
+      overlay: false, // 禁用默认的错误覆盖层，使用我们的ErrorBoundary
+    },
+  },
+  build: {
+    sourcemap: true, // 生成source map便于调试
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'antd'],
   },
 })

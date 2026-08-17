@@ -4,6 +4,7 @@ import { OrbitControls } from '@react-three/drei'
 import { Lights } from './Lights.jsx'
 import { Hall } from './Hall.jsx'
 import { Hotspot } from './Hotspot.jsx'
+import { WallHotspot, ExternalWallHotspots } from './WallHotspot.jsx'
 import { Player } from './Player.jsx'
 import { GltfModel } from './GltfModel.jsx'
 import { AutoRoamCamera } from './AutoRoamCamera.jsx'
@@ -46,6 +47,23 @@ function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usin
   return null
 }
 
+// 传送：把相机（漫游视角）直接放到目标位置，并同步位置记录
+function TeleportCamera({ teleportTarget, playerPosRef }) {
+  const { camera } = useThree()
+
+  useEffect(() => {
+    if (!teleportTarget) return
+    camera.position.set(teleportTarget.x, teleportTarget.y, teleportTarget.z)
+    camera.updateMatrixWorld()
+    if (playerPosRef?.current) {
+      playerPosRef.current.x = teleportTarget.x
+      playerPosRef.current.z = teleportTarget.z
+    }
+  }, [teleportTarget, camera, playerPosRef])
+
+  return null
+}
+
 export function Experience({
   mode,
   hotspots,
@@ -58,6 +76,7 @@ export function Experience({
   playerPosRef,
   onWorldLayout,
   worldLayout,
+  teleportTarget,
 }) {
   const markersRef = useRef([])
   const collisionWorldRef = useRef(null)
@@ -108,11 +127,23 @@ export function Experience({
         )}
       </Suspense>
 
-      {!usingExternalModel
-        ? hotspots.map((hotspot) => (
+      {/* 外部模型模式下，墙面热区需要依据 worldLayout 贴到模型真实墙面后再渲染 */}
+      {usingExternalModel ? (
+        <ExternalWallHotspots
+          hotspots={hotspots.filter((hotspot) => hotspot.kind === 'wall')}
+          worldLayout={worldLayout}
+          markersRef={markersRef}
+          onSelect={onSelect}
+        />
+      ) : (
+        hotspots.map((hotspot) =>
+          hotspot.kind === 'wall' ? (
+            <WallHotspot key={hotspot.id} data={hotspot} markersRef={markersRef} onSelect={onSelect} />
+          ) : (
             <Hotspot key={hotspot.id} data={hotspot} markersRef={markersRef} onSelect={onSelect} />
-          ))
-        : null}
+          )
+        )
+      )}
 
       {!usingExternalModel ? <TrophyDisplay onSelectTrophy={onSelectTrophy} /> : null}
 
@@ -123,6 +154,8 @@ export function Experience({
         usingExternalModel={usingExternalModel}
         onSynced={setSpawnReady}
       />
+
+      <TeleportCamera teleportTarget={teleportTarget} playerPosRef={playerPosRef} />
 
       <Player
         active={isManualRoam && !frozen}

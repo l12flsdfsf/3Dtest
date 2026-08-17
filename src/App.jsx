@@ -3,7 +3,7 @@ import { Experience } from './experience/Experience.jsx'
 import { getAutoRoamStartPose } from './data/autoRoam.js'
 import { CONFIG } from './data/config.js'
 import { HOTSPOTS } from './data/hotspots.js'
-import { hallAtWorldPosition } from './data/halls.js'
+import { hallAtWorldPosition, getHallEntrancePosition } from './data/halls.js'
 import { RAW_FIGMA_EXPORTS } from './data/assets.js'
 import { TopBar } from './ui/TopBar.jsx'
 import { FullscreenButton } from './ui/FullscreenButton.jsx'
@@ -14,12 +14,11 @@ import { TrophyModal } from './ui/TrophyModal.jsx'
 
 const INITIAL_MAP_HALL = {
   id: 'corridor',
-  label: '\u5c55\u9986\u5927\u5385',
+  label: '展厅大馆',
   worldLayout: null,
 }
 
 const INITIAL_START_POSE = getAutoRoamStartPose()
-
 const USING_EXTERNAL_MODEL = Boolean(CONFIG.modelUrl)
 
 const PANEL_ASSETS_TO_PRELOAD = [
@@ -38,6 +37,7 @@ export default function App() {
   })
   const worldLayoutRef = useRef(null)
   const mapOpenRef = useRef(false)
+  const bgmRef = useRef(null)
   const [mode, setMode] = useState('roam')
   const [selected, setSelected] = useState(null)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -59,7 +59,6 @@ export default function App() {
       image.src = src
       return image
     })
-
     return () => {
       images.forEach((image) => {
         image.src = ''
@@ -67,21 +66,30 @@ export default function App() {
     }
   }, [])
 
-  // 外部模型模式下，worldLayout 有值表示模型加载完成、场景已可见；内置展厅则立即可用
+  useEffect(() => {
+    if (bgmRef.current) bgmRef.current.volume = volume / 100
+  }, [volume])
+
+  useEffect(() => {
+    const audio = bgmRef.current
+    if (!audio) return undefined
+    const startPlayback = () => {
+      audio.play().catch(() => {})
+      window.removeEventListener('pointerdown', startPlayback)
+    }
+    window.addEventListener('pointerdown', startPlayback)
+    return () => window.removeEventListener('pointerdown', startPlayback)
+  }, [])
+
   const sceneReady = !USING_EXTERNAL_MODEL || Boolean(worldLayout)
 
   useEffect(() => {
-    // 场景（外部模型）加载完成后再弹出操作帮助，避免刷新时页面还没加载完就弹出
-    if (!sceneReady || autoHelpShownRef.current) {
-      return
-    }
-
+    if (!sceneReady || autoHelpShownRef.current) return
     const timer = window.setTimeout(() => {
       autoHelpShownRef.current = true
       setMode('inspect')
       setHelpOpen(true)
     }, 300)
-
     return () => window.clearTimeout(timer)
   }, [sceneReady])
 
@@ -89,36 +97,36 @@ export default function App() {
     () => ({
       id: 'hall-map',
       code: 'MAP',
-      title: '\u5c55\u5385\u5730\u56fe',
-      subtitle: '\u67e5\u770b\u516d\u4e2a\u5206\u5385\u7684\u4f4d\u7f6e\u4e0e\u63a8\u8350\u6e38\u89c8\u8def\u7ebf',
-      tag: '\u5730\u56fe',
+      title: '展厅地图',
+      subtitle: '查看各分厅的位置与推荐游览路线',
+      tag: '地图',
       kind: 'map',
       color: '#2563eb',
       assetSrc: RAW_FIGMA_EXPORTS.cPanel,
       scenePreview: RAW_FIGMA_EXPORTS.cPanel,
       description:
-        '\u5f53\u524d\u81ea\u52a8\u5de1\u822a\u4ece\u95e8\u53e3\u51fa\u53d1\uff0c\u5148\u770b\u5165\u53e3\u4fa7\u8363\u8a89\u5899\uff0c\u4f9d\u6b21\u8fdb\u5165\u516d\u4e2a\u4e3b\u9898\u5206\u5385\uff0c\u9014\u7ecf\u5956\u676f\u533a\u4e0e\u8363\u8a89\u7bc7\u7ae0\u540e\u518d\u56de\u5230\u95e8\u53e3\u5faa\u73af\u3002',
+        '当前自动巡航从入口出发，先看入口左侧博中序言，依次进入六个主题分厅，经过荣誉墙与博中序章后再回到入口循环。',
       route: [
-        '\u5165\u53e3 / \u5c55\u9986\u5927\u5385',
-        '\u8363\u8a89\u5899',
-        '\u5173\u6000\u5385',
-        '\u5e7f\u64ad\u5385',
-        '\u7535\u89c6\u5385',
-        '\u5956\u676f\u533a',
-        '\u7535\u5f71\u5385',
-        '\u6280\u672f\u8bbe\u5907\u5385',
-        '\u5c55\u671b\u5385',
-        '\u8363\u8a89\u7bc7\u7ae0',
+        '入口 / 展览大馆',
+        '博中馆',
+        '关怀馆',
+        '广播馆',
+        '电视馆',
+        '荣誉墙',
+        '电影馆',
+        '技术设备馆',
+        '展望馆',
+        '博中序章',
       ],
       bullets: [
-        '\u70ed\u70b9\u6807\u8bb0\u60ac\u6d6e\u5728\u5206\u5385\u524d\u65b9\uff0c\u53ef\u76f4\u63a5\u70b9\u51fb\u67e5\u770b\u5185\u5bb9\u3002',
-        '\u624b\u52a8\u6f2b\u6e38\u66f4\u9002\u5408\u8fd1\u8ddd\u79bb\u67e5\u770b\u5899\u9762\u8d34\u56fe\u4e0e\u5165\u53e3\u5c55\u9879\u3002',
-        '\u81ea\u52a8\u5de1\u822a\u4f1a\u5728\u95e8\u53e3\u3001\u5956\u676f\u533a\u548c\u8363\u8a89\u7bc7\u7ae0\u7b49\u8282\u70b9\u77ed\u6682\u505c\u7559\u3002',
+        '热点标记漂浮在分厅前方，可直接点击查看内容。',
+        '点击展厅地图中的分厅区域，可快速传送到该分厅入口。',
+        '自动巡航会在入口、荣誉区和博中序章等节点短暂停留。',
       ],
       facts: [
-        { label: '\u5206\u5385\u6570\u91cf', value: '6 \u4e2a' },
-        { label: '\u6e38\u89c8\u65b9\u5f0f', value: '\u624b\u52a8 / \u81ea\u52a8' },
-        { label: '\u5f53\u524d\u5165\u53e3', value: '\u5357\u4fa7\u4e2d\u8f74' },
+        { label: '分厅数量', value: '6 个' },
+        { label: '游览方式', value: '手动 / 自动 / 地图传送' },
+        { label: '当前入口', value: '南偏东方向' },
       ],
     }),
     [],
@@ -165,12 +173,10 @@ export default function App() {
   const resumePreviousMode = useCallback(() => {
     setSelected(null)
     setHelpOpen(false)
-
     if (resumeModeRef.current === 'auto') {
       setMode('auto')
       return
     }
-
     lockManualRoam()
   }, [lockManualRoam])
 
@@ -187,7 +193,6 @@ export default function App() {
       resumePreviousMode()
       return
     }
-
     pauseRoam('inspect')
     setSelected(null)
     setHelpOpen(true)
@@ -198,10 +203,8 @@ export default function App() {
       resumePreviousMode()
       return
     }
-
     const { x, z } = playerPosRef.current
     const worldLayout = worldLayoutRef.current
-
     setMapHall({
       ...hallAtWorldPosition(x, z, worldLayout),
       worldLayout,
@@ -247,6 +250,24 @@ export default function App() {
     setMode('inspect')
   }, [])
 
+  const teleportToHall = useCallback((hallId) => {
+    const entrancePosition = getHallEntrancePosition(hallId, worldLayoutRef.current)
+    if (!entrancePosition) return
+    controlsRef.current?.teleportTo?.(entrancePosition)
+    const hall = hallAtWorldPosition(entrancePosition.x, entrancePosition.z, worldLayoutRef.current)
+    setMapHall({
+      ...hall,
+      worldLayout: worldLayoutRef.current,
+    })
+    setSelected(null)
+    setHelpOpen(false)
+    setFocused(null)
+    setMode('roam')
+    window.requestAnimationFrame(() => {
+      controlsRef.current?.lock?.()
+    })
+  }, [])
+
   const handleWorldLayout = useCallback((layout) => {
     worldLayoutRef.current = layout
     setWorldLayout((prev) => (prev === layout ? prev : layout))
@@ -255,7 +276,6 @@ export default function App() {
       if (!mapOpenRef.current) {
         return prev.worldLayout === layout ? prev : { ...prev, worldLayout: layout }
       }
-
       const { x, z } = playerPosRef.current
       return {
         ...hallAtWorldPosition(x, z, layout),
@@ -265,7 +285,9 @@ export default function App() {
   }, [])
 
   return (
-    <div className="relative h-full w-full overflow-hidden bg-[#ebe5dc]">
+    <div className='relative h-full w-full overflow-hidden bg-[#ebe5dc]'>
+      <audio ref={bgmRef} src='/audio/bgm-hall.m4a' loop preload='auto' />
+
       <Experience
         mode={mode}
         hotspots={HOTSPOTS}
@@ -282,7 +304,7 @@ export default function App() {
         worldLayout={worldLayout}
       />
 
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.04),transparent_24%)]" />
+      <div className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.45),transparent_34%),linear-gradient(180deg,rgba(15,23,42,0.04),transparent_24%)]' />
 
       <LoadingOverlay visible={!sceneReady} ready={sceneReady} />
 
@@ -305,7 +327,7 @@ export default function App() {
       <FullscreenButton />
 
       <HelpOverlay open={helpOpen} onClose={resumePreviousMode} autoActive={mode === 'auto'} />
-      <HotspotDrawer hotspot={selected} currentHall={mapHall} onClose={closeDrawer} />
+      <HotspotDrawer hotspot={selected} currentHall={mapHall} onClose={closeDrawer} onTeleportToHall={teleportToHall} />
       <TrophyModal trophy={trophy} onClose={() => setTrophy(null)} />
     </div>
   )
