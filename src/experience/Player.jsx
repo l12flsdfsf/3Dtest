@@ -21,7 +21,6 @@ const _forward = new THREE.Vector3()
 const _right = new THREE.Vector3()
 const _move = new THREE.Vector3()
 const _step = new THREE.Vector3()
-const _center = new THREE.Vector2(0, 0)
 
 function buildCollisionWalls() {
   const { width, depth, centralStage, sandTable } = CONFIG.hall
@@ -88,18 +87,13 @@ export function Player({
   active,
   onReady,
   onLockChange,
-  onFocused,
-  markersRef,
-  onSelect,
   playerPosRef,
   collisionWorldRef,
   worldLayout,
 }) {
   const { camera, gl } = useThree()
   const move = useRef({ f: 0, b: 0, l: 0, r: 0, run: false })
-  const raycaster = useRef(new THREE.Raycaster())
   const collisionCapsule = useRef(createPlayerCollisionCapsule())
-  const focusedRef = useRef(null)
   const activeRef = useRef(active)
   const didInitRef = useRef(false)
   const roamingRef = useRef(false)
@@ -209,9 +203,6 @@ export function Player({
         case 'ShiftRight':
           move.current.run = value
           break
-        case 'KeyE':
-          if (value && roamingRef.current && focusedRef.current) onSelect(focusedRef.current)
-          break
         case 'Escape':
           if (value && roamingRef.current) setRoaming(false)
           break
@@ -230,7 +221,7 @@ export function Player({
       window.removeEventListener('keydown', onKeyDown)
       window.removeEventListener('keyup', onKeyUp)
     }
-  }, [onSelect, setRoaming])
+  }, [setRoaming])
 
   useEffect(() => {
     const dom = gl.domElement
@@ -278,8 +269,6 @@ export function Player({
     activeRef.current = active
     if (!active) {
       setRoaming(false)
-      focusedRef.current = null
-      onFocused?.(null)
       return
     }
 
@@ -290,7 +279,7 @@ export function Player({
       applySpawnPose(worldLayout)
     }
     setRoaming(true)
-  }, [active, applySpawnPose, onFocused, setRoaming, worldLayout])
+  }, [active, applySpawnPose, setRoaming, worldLayout])
 
   useFrame((_, delta) => {
     // 始终同步相机（玩家）世界坐标到 ref，供展厅地图在打开时取一次快照定位「你在此」。
@@ -348,17 +337,6 @@ export function Player({
       resolveExternalCollision(camera, collisionWorldRef, eyeHeight, collisionCapsule.current)
     }
     camera.position.y = eyeHeight
-
-    raycaster.current.setFromCamera(_center, camera)
-    raycaster.current.far = 5.5
-    const meshes = markersRef.current.map((entry) => entry.mesh).filter(Boolean)
-    const hits = raycaster.current.intersectObjects(meshes, false)
-    const focused = hits[0]?.object?.userData?.hotspot ?? null
-
-    if ((focused?.id ?? null) !== (focusedRef.current?.id ?? null)) {
-      focusedRef.current = focused
-      onFocused?.(focused)
-    }
   })
 
   return null
