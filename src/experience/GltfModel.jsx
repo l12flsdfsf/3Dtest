@@ -319,6 +319,9 @@ export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPictu
     try {
       const hits = (event.intersections || []).slice(0, 4)
       for (const hit of hits) {
+        // 墙面热点区域由热点系统处理（弹出信息面板），不触发照片查看
+        if (hit.object?.userData?.hotspot) return
+
         const picture = findPictureTexture(hit.object, hit.face)
         if (!picture?.texture) continue
 

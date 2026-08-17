@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+﻿import { useMemo } from 'react'
 import * as THREE from 'three'
 import { CONFIG } from '../data/config.js'
 import { HALLS, LOCAL_ANCHORS } from '../data/halls.js'

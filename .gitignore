@@ -1,4 +1,4 @@
-# Dependencies
+﻿# Dependencies
 node_modules/
 
 # Build output
@@ -43,3 +43,12 @@ public/models/scene.gltf
 
 # Local agent output
 .codex/
+
+# Temporary files
+*.temp
+*.temp.*
+.tmp-*
+
+# Git ownership fix
+agents/
+.agents/
