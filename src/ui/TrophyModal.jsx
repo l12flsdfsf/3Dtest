@@ -23,7 +23,7 @@ export function TrophyModal({ trophy, onClose }) {
       onCancel={onClose}
       footer={null}
       width={720}
-      destroyOnClose
+      destroyOnHidden
       rootClassName="trophy-modal"
       title={null}
     >

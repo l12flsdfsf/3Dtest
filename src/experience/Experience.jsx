@@ -74,7 +74,7 @@ export function Experience({
 
   return (
     <Canvas
-      shadows
+      shadows="basic"
       dpr={[1, 1.5]}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       style={{ opacity: spawnReady ? 1 : 0 }}

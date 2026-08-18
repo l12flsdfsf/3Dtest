@@ -265,6 +265,29 @@ function buildWorldLayout(scene) {
 }
 
 const sceneLayoutCache = new WeakMap()
+let ktx2TargetLogged = false
+
+// 模型资源缺陷兜底：场景里每个厅有一块深灰无贴图的"遮挡盒"（材质 phong1：
+// 关怀厅.020 / 电视厅.024 / 电影厅.014 / 技术设备厅.025 / 展望厅.016），
+// 其几何比海报墙的正面还靠前约 3cm，把整面墙的照片海报挡成黑墙。
+// 资源侧修复（Blender 里删除后重新导出）前，加载后直接从场景移除，
+// 同时避免其参与碰撞体与点击射线。
+function removeOccludingBlankPanels(scene) {
+  const doomed = []
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    const isBlankPanel = materials.length > 0 && materials.every(
+      (material) => material && material.name === 'phong1' && !material.map && !material.emissiveMap,
+    )
+    if (isBlankPanel) doomed.push(object)
+  })
+  for (const object of doomed) object.parent?.remove(object)
+  if (doomed.length) {
+    console.info(`[gltf] 已移除 ${doomed.length} 块遮挡海报的空白暗盒: ${doomed.map((o) => o.name).join(', ')}`)
+  }
+  return doomed.length
+}
 
 // 单个网格的三角形总数（多材质分组时索引为准）
 function countMeshTriangles(mesh) {
@@ -423,19 +446,67 @@ function getSceneLayout(scene) {
 
 export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPicture }) {
   const gl = useThree((state) => state.gl)
-  // KTX2（GPU 压缩纹理）支持：basis 转码器放 public/basis/，按当前渲染器能力选择转码目标
-  const ktx2Loader = useMemo(
-    () => new KTX2Loader().setTranscoderPath('/basis/').detectSupport(gl),
-    [gl],
-  )
+  // KTX2（GPU 压缩纹理）支持：basis 转码器放 public/basis/，按当前渲染器能力选择转码目标。
+  // 注意：桌面 ANGLE 上 BC7(bptc)/模拟 ETC2/ASTC 在部分驱动上会把 sRGB 压缩贴图
+  // 采样成黑色或随视角闪烁（undefined behavior）；S3TC(BC1/BC3) 是 D3D 原生格式，
+  // 只要支持就强制只走 S3TC，规避整类驱动兼容问题。
+  const ktx2Loader = useMemo(() => {
+    const loader = new KTX2Loader().setTranscoderPath('/basis/').detectSupport(gl)
+    const caps = loader.workerConfig
+    if (caps && caps.dxtSupported) {
+      caps.bptcSupported = false
+      caps.astcSupported = false
+      caps.etc1Supported = false
+      caps.etc2Supported = false
+      caps.pvrtcSupported = false
+      if (!ktx2TargetLogged) {
+        ktx2TargetLogged = true
+        console.info('[gltf] KTX2 转码目标锁定为 S3TC(BC1/BC3)，规避 BC7/ETC2/ASTC 驱动兼容问题')
+      }
+    } else if (!ktx2TargetLogged) {
+      ktx2TargetLogged = true
+      console.info('[gltf] KTX2 转码目标:', JSON.stringify(caps))
+    }
+    return loader
+  }, [gl])
   // 第三个参数启用 MeshoptDecoder：新模型的几何带 EXT_meshopt_compression
   const { scene } = useGLTF(url, false, true, (loader) => {
     loader.setKTX2Loader(ktx2Loader)
   })
   const worldLayout = useMemo(() => {
+    removeOccludingBlankPanels(scene) // 必须先于布局/碰撞体构建
     if (typeof window !== 'undefined') window.__gltfScene = scene // 调试用：自动化测试检查场景网格
     return getSceneLayout(scene)
   }, [scene])
+
+  // 贴图各向异性过滤：墙面海报/地砖在斜视角下高频纹理会随移动闪烁（mipmap 走样），
+  // 8x anisotropy 显著缓解；在首次上传前设置（本 useMemo 早于首帧渲染执行）。
+  useMemo(() => {
+    const maxAnisotropy = gl.capabilities?.getMaxAnisotropy?.() ?? 1
+    const anisotropy = Math.min(8, maxAnisotropy)
+    if (anisotropy <= 1) return
+    const touched = new Set()
+    scene.traverse((object) => {
+      if (!object.isMesh) return
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      for (const material of materials) {
+        if (!material) continue
+        for (const texture of [
+          material.map,
+          material.emissiveMap,
+          material.normalMap,
+          material.aoMap,
+          material.roughnessMap,
+          material.metalnessMap,
+        ]) {
+          if (texture && !touched.has(texture.uuid)) {
+            touched.add(texture.uuid)
+            texture.anisotropy = anisotropy
+          }
+        }
+      }
+    })
+  }, [gl, scene])
   const mountedRef = useRef(true)
 
   useEffect(() => {
