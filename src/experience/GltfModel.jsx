@@ -305,32 +305,26 @@ export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPictu
   }, [analysis, collisionWorldRef, onWorldLayout])
 
   // 点击墙上照片/展板/屏幕：从命中网格的材质里取出图片贴图，导出原图交给查看器。
-  // R3F 会沿射线对每个命中对象各派发一次事件，这里只处理最近的一次，
-  // 并沿命中链（近→远）逐个尝试：有些贴片（如装饰板）视觉上不可见却挡在最近处，
-  // 其纯色区域裁不出图片时应继续尝试它背后真正显示照片的网格。
+  // R3F 会沿射线对每个命中对象各派发一次事件，只处理最近命中面，
+  // 使墙体和展板空白区域等可见遮挡物能够阻止其后的图片被选中。
   const handlePictureClick = async (event) => {
     if (event.delta > 6) return // 拖拽旋转视角的抬起不视为点击
 
     const nearest = event.intersections?.[0]
-    if (nearest && nearest.object !== event.object) return
+    if (!nearest || nearest.object !== event.object) return
 
     event.stopPropagation()
 
     try {
-      const hits = (event.intersections || []).slice(0, 4)
-      for (const hit of hits) {
-        const picture = findPictureTexture(hit.object, hit.face)
-        if (!picture?.texture) continue
+      const picture = findPictureTexture(nearest.object, nearest.face)
+      if (!picture?.texture) return
 
-        const photo = await textureToPhoto(picture.texture, picture.name, {
-          board: picture.board,
-          uv: hit.uv,
-        })
-        if (!photo) continue // 板类点击处无内容，尝试更远的命中
+      const photo = await textureToPhoto(picture.texture, picture.name, {
+        board: picture.board,
+        uv: nearest.uv,
+      })
 
-        if (mountedRef.current) onSelectPicture?.(photo)
-        break
-      }
+      if (photo && mountedRef.current) onSelectPicture?.(photo)
     } catch (error) {
       console.error('导出图片贴图失败', error)
     }
