@@ -38,8 +38,9 @@ Thumbs.db
 .env.local
 .env.*.local
 
-# Local-only assets
-public/models/scene.gltf
+# Local-only assets（大模型文件不入库，避免仓库膨胀）
+models-src/
+public/models/
 
 # Local agent output
 .codex/

@@ -10,6 +10,7 @@ import { TrophyDisplay } from './TrophyDisplay.jsx'
 import { CONFIG } from '../data/config.js'
 import { getAutoRoamStartPose } from '../data/autoRoam.js'
 import { createPlayerCollisionCapsule, resolveExternalCollisionPosition } from './collision.js'
+import { getValidatedSpawnPose } from './spawnPose.js'
 
 function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usingExternalModel, onSynced }) {
   const { camera } = useThree()
@@ -18,7 +19,8 @@ function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usin
   useLayoutEffect(() => {
     if (usingExternalModel && !worldLayout) return
 
-    const { position, target } = getAutoRoamStartPose(worldLayout)
+    // 统一出生位姿：与 Player 共用同一份带校验缓存的位姿，避免互相覆盖
+    const { position, target } = getValidatedSpawnPose(worldLayout, collisionWorldRef?.current)
     camera.up.set(0, 1, 0)
     camera.position.copy(position)
 

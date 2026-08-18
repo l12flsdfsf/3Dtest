@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
+import { useThree } from '@react-three/fiber'
 import { Octree } from 'three/examples/jsm/math/Octree.js'
+import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { CONFIG } from '../data/config.js'
 import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
 import { findPictureTexture, textureToPhoto } from './pictureTexture.js'
@@ -262,26 +264,178 @@ function buildWorldLayout(scene) {
   }
 }
 
-const sceneAnalysisCache = new WeakMap()
+const sceneLayoutCache = new WeakMap()
 
-function getSceneAnalysis(scene) {
-  const cached = sceneAnalysisCache.get(scene)
+// 单个网格的三角形总数（多材质分组时索引为准）
+function countMeshTriangles(mesh) {
+  const geometries = Array.isArray(mesh.geometry) ? mesh.geometry : [mesh.geometry]
+  return geometries.reduce((total, geometry) => {
+    if (!geometry) return total
+    if (geometry.index) return total + geometry.index.count / 3
+    return total + (geometry.attributes?.position?.count || 0) / 3
+  }, 0)
+}
+
+// 高密度网格（如 tripo 生成的展品实物，单个几万面）不适合直接进碰撞 Octree：
+// 全量 2.8M 三角形的八叉树会吃掉 1-2GB 内存并卡死解析阶段。
+// 这类网格改用世界包围盒的 12 三角代理做碰撞，建筑墙体/展板仍走精确三角。
+const DENSE_TRIANGLE_LIMIT = 2000
+// 精确三角总量预算：实测 three Octree 入树 ~8K 三角≈1.6s，40K 约 10s 内可完成；
+// 超预算的网格退化为包围盒代理（分格小盒），不再依赖场景级一刀切禁用
+const COLLISION_TRIANGLE_BUDGET = 60000
+const COLLISION_SCENE_TRIANGLE_LIMIT = 5000000
+const TOPOLOGY_SENSITIVE_TRIANGLE_LIMIT = 800
+const TOPOLOGY_SENSITIVE_MIN_SPAN = 4
+
+function countSceneTriangles(scene) {
+  let total = 0
+  scene.traverse((object) => {
+    if (object.isMesh) total += countMeshTriangles(object)
+  })
+  return total
+}
+
+function requiresPreciseCollision(triangleCount, size) {
+  const largestSpan = Math.max(size.x, size.y, size.z)
+  return (
+    triangleCount <= TOPOLOGY_SENSITIVE_TRIANGLE_LIMIT &&
+    largestSpan >= TOPOLOGY_SENSITIVE_MIN_SPAN
+  )
+}
+
+// 碰撞体策略：
+// - Octree 默认 maxLevel=16，遇共面巨型三角形会病态细分（4^16 节点潜力）导致卡死/爆内存。
+//   限到 5 层（碰撞粒度 ~1.5m，足够玩家胶囊），建筑网格（外壳/地面/带门洞墙体）全部
+//   保留原始三角精确碰撞——盒子化外壳会把空心建筑填实、封死门洞（实测教训）。
+// - 只有超过单网格面数上限或总预算的高模（tripo 展品等小实物）用分格包围盒代理。
+const COLLISION_MAX_LEVEL = 5
+const PROXY_CELL_SIZE = 2
+const PROXY_MAX_CELLS = 512
+
+function buildCollisionWorld(scene) {
+  // Keep high-poly exports interactive: their collider generation can take
+  // minutes even when the compressed .glb itself is small.
+  if (countSceneTriangles(scene) > COLLISION_SCENE_TRIANGLE_LIMIT) return null
+
+  console.info('[perf] collision 开始')
+  const startedAt = performance.now()
+  const octree = new Octree()
+  octree.maxLevel = COLLISION_MAX_LEVEL
+  const proxies = []
+  const pendingPrecise = []
+  let preciseTriangleCount = 0
+  let meshCount = 0
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    meshCount += 1
+    const triangleCount = countMeshTriangles(object)
+    const box = new THREE.Box3().setFromObject(object)
+    if (box.isEmpty()) return
+    const size = box.getSize(new THREE.Vector3())
+
+    // Large, low-poly room meshes can include actual door openings. Bounding
+    // boxes would fill those openings, so keep their triangle topology.
+    const usePreciseCollision =
+      triangleCount <= DENSE_TRIANGLE_LIMIT &&
+      (requiresPreciseCollision(triangleCount, size) ||
+        preciseTriangleCount + triangleCount <= COLLISION_TRIANGLE_BUDGET)
+
+    if (!usePreciseCollision) {
+      // 高模（小实物）用分格包围盒代理；格子限制数量防爆
+      const dims = [size.x, size.y, size.z].map((value) => Math.max(value, 0.04))
+      let cells = dims.map((value) => Math.max(1, Math.ceil(value / PROXY_CELL_SIZE)))
+      const cellTotal = cells[0] * cells[1] * cells[2]
+      if (cellTotal > PROXY_MAX_CELLS) {
+        const scale = Math.cbrt(cellTotal / PROXY_MAX_CELLS)
+        cells = cells.map((value) => Math.max(1, Math.ceil(value / scale)))
+      }
+      for (let cx = 0; cx < cells[0]; cx += 1) {
+        for (let cy = 0; cy < cells[1]; cy += 1) {
+          for (let cz = 0; cz < cells[2]; cz += 1) {
+            const cellSize = [dims[0] / cells[0], dims[1] / cells[1], dims[2] / cells[2]]
+            const proxy = new THREE.Mesh(
+              new THREE.BoxGeometry(cellSize[0], cellSize[1], cellSize[2]),
+            )
+            proxy.position.set(
+              box.min.x + cellSize[0] * (cx + 0.5),
+              box.min.y + cellSize[1] * (cy + 0.5),
+              box.min.z + cellSize[2] * (cz + 0.5),
+            )
+            proxy.updateMatrix()
+            proxy.matrixWorld.copy(proxy.matrix)
+            proxies.push(proxy)
+          }
+        }
+      }
+      return
+    }
+
+    preciseTriangleCount += triangleCount
+    pendingPrecise.push(object)
+  })
+  console.info(
+    `[perf] collision 网格分类完成 meshes=${meshCount} 精确三角=${preciseTriangleCount} 代理盒=${proxies.length} 耗时=${(performance.now() - startedAt).toFixed(0)}ms`,
+  )
+  for (const object of pendingPrecise) octree.fromGraphNode(object)
+  console.info(
+    `[perf] collision 精确网格入树完成 耗时=${(performance.now() - startedAt).toFixed(0)}ms`,
+  )
+  for (const proxy of proxies) {
+    octree.fromGraphNode(proxy)
+    proxy.geometry.dispose()
+  }
+  console.info(`[perf] collision 完成 耗时=${(performance.now() - startedAt).toFixed(0)}ms`)
+  return octree
+}
+
+function buildFallbackWorldLayout(scene) {
+  const box = new THREE.Box3().setFromObject(scene)
+  if (box.isEmpty()) return null
+
+  const center = box.getCenter(new THREE.Vector3())
+  const size = box.getSize(new THREE.Vector3())
+
+  return {
+    centerX: center.x,
+    centerZ: center.z,
+    halfWidth: Math.max(size.x / 2, CONFIG.hall.width / 2),
+    halfDepth: Math.max(size.z / 2, CONFIG.hall.depth / 2),
+    transform: null,
+    halls: [],
+  }
+}
+
+function getSceneLayout(scene) {
+  const cached = sceneLayoutCache.get(scene)
   if (cached) return cached
 
+  console.info('[perf] layout 开始')
   scene.updateMatrixWorld(true)
-  const worldLayout = buildWorldLayout(scene)
+  const worldLayout = buildWorldLayout(scene) ?? buildFallbackWorldLayout(scene)
+  console.info('[perf] worldLayout 完成', worldLayout ? worldLayout.halls?.length + '厅' : 'null')
   const anchors = buildSceneAnchors(scene)
-  const analysis = {
-    collisionWorld: new Octree().fromGraphNode(scene),
-    worldLayout: worldLayout ? { ...worldLayout, anchors } : null,
-  }
-  sceneAnalysisCache.set(scene, analysis)
-  return analysis
+  console.info('[perf] anchors 完成')
+  const layout = worldLayout ? { ...worldLayout, anchors } : null
+  sceneLayoutCache.set(scene, layout)
+  return layout
 }
 
 export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPicture }) {
-  const { scene } = useGLTF(url)
-  const analysis = useMemo(() => getSceneAnalysis(scene), [scene])
+  const gl = useThree((state) => state.gl)
+  // KTX2（GPU 压缩纹理）支持：basis 转码器放 public/basis/，按当前渲染器能力选择转码目标
+  const ktx2Loader = useMemo(
+    () => new KTX2Loader().setTranscoderPath('/basis/').detectSupport(gl),
+    [gl],
+  )
+  // 第三个参数启用 MeshoptDecoder：新模型的几何带 EXT_meshopt_compression
+  const { scene } = useGLTF(url, false, true, (loader) => {
+    loader.setKTX2Loader(ktx2Loader)
+  })
+  const worldLayout = useMemo(() => {
+    if (typeof window !== 'undefined') window.__gltfScene = scene // 调试用：自动化测试检查场景网格
+    return getSceneLayout(scene)
+  }, [scene])
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -292,17 +446,28 @@ export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPictu
   }, [])
 
   useEffect(() => {
+    onWorldLayout?.(worldLayout)
+  }, [onWorldLayout, worldLayout])
+
+  useEffect(() => {
+    console.info('[perf] collision effect 触发, ref=', !!collisionWorldRef)
     if (!collisionWorldRef) return undefined
 
-    collisionWorldRef.current = analysis.collisionWorld
-    onWorldLayout?.(analysis.worldLayout)
+    collisionWorldRef.current = null
+    let disposed = false
+    const timer = window.setTimeout(() => {
+      console.info('[perf] collision 定时器回调, disposed=', disposed)
+      if (disposed) return
+      const collisionWorld = buildCollisionWorld(scene)
+      if (!disposed) collisionWorldRef.current = collisionWorld
+    }, 0)
 
     return () => {
-      if (collisionWorldRef.current === analysis.collisionWorld) {
-        collisionWorldRef.current = null
-      }
+      disposed = true
+      window.clearTimeout(timer)
+      collisionWorldRef.current = null
     }
-  }, [analysis, collisionWorldRef, onWorldLayout])
+  }, [collisionWorldRef, scene])
 
   // 点击墙上照片/展板/屏幕：从命中网格的材质里取出图片贴图，导出原图交给查看器。
   // R3F 会沿射线对每个命中对象各派发一次事件，只处理最近命中面，

@@ -1,3 +1,12 @@
+// 调试/对比入口：?model=/models/scene.ktx2.glb 可临时切换加载的模型
+function resolveModelUrl() {
+  if (typeof window !== 'undefined') {
+    const override = new URLSearchParams(window.location.search).get('model')
+    if (override) return override
+  }
+  return '/models/scene-0817.glb'
+}
+
 export const CONFIG = {
   hall: {
     width: 24,
@@ -26,7 +35,7 @@ export const CONFIG = {
     speed: 5.2,
     runMultiplier: 1.75,
   },
-  modelUrl: '/models/scene.gltf',
+  modelUrl: resolveModelUrl(),
   autoRoam: {
     loop: true,
     speed: 1.7,

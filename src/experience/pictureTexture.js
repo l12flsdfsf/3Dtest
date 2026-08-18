@@ -32,11 +32,98 @@ function getTextureImageSize(texture) {
   const image = texture?.image
   if (!image) return null
 
-  const width = Number(image.width) || 0
-  const height = Number(image.height) || 0
+  // KTX2 等压缩纹理的 image 是各级 mipmap 描述符的数组，取第 0 级
+  const source = Array.isArray(image) ? image[0] : image
+  const width = Number(source?.width) || 0
+  const height = Number(source?.height) || 0
   if (!width || !height) return null
 
   return { width, height }
+}
+
+// ---------------------------------------------------------------------------
+// 压缩纹理（KTX2/Basis）解码：canvas 的 drawImage 画不了 GPU 压缩纹理，
+// 用一个离屏 WebGLRenderer 把整张贴图渲成 1:1 像素再回读，等效于拿到解码后的原图。
+let gpuDecodeRenderer = null
+
+function getGpuDecodeRenderer() {
+  if (gpuDecodeRenderer) return gpuDecodeRenderer
+  gpuDecodeRenderer = new THREE.WebGLRenderer({
+    canvas: document.createElement('canvas'),
+    antialias: false,
+    depth: false,
+    stencil: false,
+    preserveDrawingBuffer: true,
+  })
+  gpuDecodeRenderer.setSize(4, 4)
+  return gpuDecodeRenderer
+}
+
+// 把（压缩）贴图整幅解码为指定尺寸的 2D canvas。
+// 返回的 canvas 与「原图片文件」同方向同色彩（sRGB），可直接当 image 用。
+function decodeTextureToCanvas(texture, width, height) {
+  const renderer = getGpuDecodeRenderer()
+  const previousTarget = renderer.getRenderTarget()
+
+  const material = new THREE.MeshBasicMaterial({ map: texture })
+  const quad = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), material)
+  const scene = new THREE.Scene()
+  scene.add(quad)
+  const camera = new THREE.OrthographicCamera(-0.5, 0.5, 0.5, -0.5, 0, 1)
+
+  const target = new THREE.WebGLRenderTarget(width, height, {
+    depthBuffer: false,
+    stencilBuffer: false,
+  })
+  // 按纹理自身的色彩空间写出（照片为 sRGB），保证解码后颜色与原图一致
+  target.texture.colorSpace = THREE.SRGBColorSpace
+
+  renderer.setRenderTarget(target)
+  renderer.render(scene, camera)
+
+  const buffer = new Uint8Array(width * height * 4)
+  renderer.readRenderTargetPixels(target, 0, 0, width, height, buffer)
+  renderer.setRenderTarget(previousTarget)
+
+  quad.geometry.dispose()
+  material.dispose()
+  target.dispose()
+
+  // 回读缓冲第 0 行对应贴图数据第 0 行（压缩纹理 flipY 恒为 false），
+  // 与 ImageData 的行序一致，直接拷贝即可；flipY 纹理才需要翻转。
+  const canvas = document.createElement('canvas')
+  canvas.width = width
+  canvas.height = height
+  const ctx = canvas.getContext('2d')
+  const imageData = ctx.createImageData(width, height)
+  if (texture.flipY) {
+    const rowSize = width * 4
+    for (let y = 0; y < height; y += 1) {
+      imageData.data.set(buffer.subarray((height - 1 - y) * rowSize, (height - y) * rowSize), y * rowSize)
+    }
+  } else {
+    imageData.data.set(buffer)
+  }
+  ctx.putImageData(imageData, 0, 0)
+  return canvas
+}
+
+// 统一的「贴图 → 可绘制 canvas」入口：普通贴图直接画，压缩贴图走 GPU 解码
+function textureToCanvas(texture, width, height) {
+  if (!isCompressedTexture(texture)) {
+    const canvas = document.createElement('canvas')
+    canvas.width = width
+    canvas.height = height
+    canvas.getContext('2d').drawImage(texture.image, 0, 0, width, height)
+    return canvas
+  }
+  return decodeTextureToCanvas(texture, width, height)
+}
+
+// KTX2/Basis 压缩纹理：CompressedTexture.image 只是 {width,height} 描述符，
+// 真正的压缩数据在 texture.mipmaps，无法用 canvas drawImage 绘制
+function isCompressedTexture(texture) {
+  return texture?.isCompressedTexture === true || Array.isArray(texture?.image)
 }
 
 // 竖版、高分辨率且未设置平铺的贴图视为照片
@@ -111,16 +198,13 @@ export function findPictureTexture(object, face) {
 
 // 把贴图位图绘制到（可能缩放过的）canvas 并返回像素数据
 function readTexturePixels(texture) {
-  const image = texture.image
-  const scale = Math.min(1, SCAN_MAX_SIZE / Math.max(image.width, image.height))
-  const width = Math.max(1, Math.round(image.width * scale))
-  const height = Math.max(1, Math.round(image.height * scale))
+  const size = getTextureImageSize(texture)
+  const scale = Math.min(1, SCAN_MAX_SIZE / Math.max(size.width, size.height))
+  const width = Math.max(1, Math.round(size.width * scale))
+  const height = Math.max(1, Math.round(size.height * scale))
 
-  const canvas = document.createElement('canvas')
-  canvas.width = width
-  canvas.height = height
+  const canvas = textureToCanvas(texture, width, height)
   const ctx = canvas.getContext('2d', { willReadFrequently: true })
-  ctx.drawImage(image, 0, 0, width, height)
   return { data: ctx.getImageData(0, 0, width, height).data, width, height, scale }
 }
 
@@ -247,8 +331,11 @@ function computeBoardCrop(texture, uv) {
 // board 类（拼贴板/烘焙墙）按点击 uv 裁出单张：点击处是纯色留白时返回 null（交还调用方继续尝试更远的命中）。
 // 其余导出整张，无画质损失。
 export async function textureToPhoto(texture, name, options = {}) {
-  const image = texture?.image
-  if (!image) throw new Error('texture has no image')
+  const size = getTextureImageSize(texture)
+  if (!size) throw new Error('texture has no image')
+
+  // 压缩贴图先解码成原尺寸 canvas，后续裁剪/导出与普通图片同路
+  const source = isCompressedTexture(texture) ? textureToCanvas(texture, size.width, size.height) : texture.image
 
   if (options.board) {
     const crop = computeBoardCrop(texture, options.uv)
@@ -257,7 +344,7 @@ export async function textureToPhoto(texture, name, options = {}) {
     const canvas = document.createElement('canvas')
     canvas.width = crop.sw
     canvas.height = crop.sh
-    canvas.getContext('2d').drawImage(image, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, crop.sw, crop.sh)
+    canvas.getContext('2d').drawImage(source, crop.sx, crop.sy, crop.sw, crop.sh, 0, 0, crop.sw, crop.sh)
 
     const blob = await new Promise((resolve, reject) => {
       canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('toBlob failed'))), 'image/png')
@@ -266,9 +353,9 @@ export async function textureToPhoto(texture, name, options = {}) {
   }
 
   const canvas = document.createElement('canvas')
-  canvas.width = image.width
-  canvas.height = image.height
-  canvas.getContext('2d').drawImage(image, 0, 0)
+  canvas.width = size.width
+  canvas.height = size.height
+  canvas.getContext('2d').drawImage(source, 0, 0)
 
   const blob = await new Promise((resolve, reject) => {
     canvas.toBlob((result) => (result ? resolve(result) : reject(new Error('toBlob failed'))), 'image/png')

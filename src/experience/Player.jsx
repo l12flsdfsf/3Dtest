@@ -3,9 +3,18 @@ import { useFrame, useThree } from '@react-three/fiber'
 import * as THREE from 'three'
 import { CONFIG } from '../data/config.js'
 import { getAutoRoamStartPose } from '../data/autoRoam.js'
-import { HALLS, LOCAL_ANCHORS, roomToWorld, MODEL_PLINTH_HALF } from '../data/halls.js'
+import { getValidatedSpawnPose } from './spawnPose.js'
+import {
+  HALLS,
+  LOCAL_ANCHORS,
+  roomToWorld,
+  MODEL_PLINTH_HALF,
+  getHallCanonicalCenter,
+  projectHallLayoutToWorldPosition,
+} from '../data/halls.js'
 import {
   COLLISION_STEP,
+  PLAYER_COLLIDER_BOTTOM,
   PLAYER_HEAD_CLEARANCE,
   PLAYER_RADIUS,
   createPlayerCollisionCapsule,
@@ -103,10 +112,12 @@ export function Player({
   const spawnPositionRef = useRef(null)
   const spawnWorldLayoutRef = useRef(undefined)
   const hasInteractedSinceSpawnRef = useRef(false)
+  const spawnClearedRef = useRef(false)
 
   const applySpawnPose = useCallback(
     (layout) => {
-      const { position, target } = getAutoRoamStartPose(layout)
+      // 统一出生位姿：与 InitialSpawnCamera 共用同一份带校验缓存的位姿，避免互相覆盖
+      const { position, target } = getValidatedSpawnPose(layout, collisionWorldRef?.current)
 
       camera.up.set(0, 1, 0)
       camera.position.copy(position)
@@ -287,6 +298,40 @@ export function Player({
       playerPosRef.current.x = camera.position.x
       playerPosRef.current.z = camera.position.z
     }
+    // 调试钩子：自动化测试读取玩家坐标/碰撞状态（生产无副作用）
+    window.__camera = camera
+    window.__worldLayout = worldLayout
+    if (worldLayout?.sceneRoot) window.__scene = worldLayout.sceneRoot
+    if (collisionWorldRef?.current) {
+      window.__collisionWorld = collisionWorldRef.current
+      if (!window.__clearance) {
+        const probeRay = new THREE.Ray()
+        window.__clearance = (x, y, z, dx, dz) => {
+          const length = Math.hypot(dx, dz) || 1
+          probeRay.origin.set(x, y, z)
+          probeRay.direction.set(dx / length, 0, dz / length)
+          const hit = collisionWorldRef.current?.rayIntersect(probeRay)
+          return hit && Number.isFinite(hit.distance) ? hit.distance : 999
+        }
+        window.__capsuleBlocked = (x, z) => {
+          const capsule = collisionCapsule.current
+          capsule.start.set(x, 0.37, z)
+          capsule.end.set(x, CONFIG.player.eyeHeight - 0.12, z)
+          return !!collisionWorldRef.current?.capsuleIntersect(capsule)
+        }
+      }
+    }
+    if ((window.__playerFrame = (window.__playerFrame || 0) + 1) % 2 === 0) {
+      window.__playerDebug = {
+        t: Date.now(),
+        x: +camera.position.x.toFixed(2),
+        y: +camera.position.y.toFixed(2),
+        z: +camera.position.z.toFixed(2),
+        collision: !!collisionWorldRef?.current,
+        roaming: roamingRef.current === true,
+        keys: { ...move.current },
+      }
+    }
     if (!hasInteractedSinceSpawnRef.current && spawnPositionRef.current) {
       const dx = camera.position.x - spawnPositionRef.current.x
       const dz = camera.position.z - spawnPositionRef.current.z
@@ -295,6 +340,25 @@ export function Player({
       }
     }
     if (!active || !roamingRef.current) return
+
+    // 碰撞体就绪后（构建是异步的，可能晚于出生）做一次出生点校验/迁移：
+    // 校验逻辑与缓存在 spawnPose.js，InitialSpawnCamera 与 applySpawnPose 拿同一份结果
+    if (USING_EXTERNAL_MODEL && !spawnClearedRef.current && collisionWorldRef?.current) {
+      spawnClearedRef.current = true
+      const pose = getValidatedSpawnPose(worldLayout, collisionWorldRef.current)
+      if (pose && !hasInteractedSinceSpawnRef.current) {
+        camera.position.copy(pose.position)
+        camera.up.set(0, 1, 0)
+        camera.lookAt(pose.target ?? pose.position.clone().add(new THREE.Vector3(0, 0, 5)))
+        euler.current.setFromQuaternion(camera.quaternion)
+        spawnPositionRef.current = camera.position.clone()
+        spawnWorldLayoutRef.current = worldLayout
+        if (playerPosRef) {
+          playerPosRef.current.x = camera.position.x
+          playerPosRef.current.z = camera.position.z
+        }
+      }
+    }
 
     const { eyeHeight, speed, runMultiplier } = CONFIG.player
 
