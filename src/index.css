@@ -16,6 +16,69 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+.topbar {
+  top: 2rem;
+  right: 2rem;
+  transform: scale(var(--topbar-scale, 1));
+  transform-origin: top right;
+}
+
+.topbar__inner {
+  gap: 0.625rem;
+  padding: 0.75rem 1rem;
+  white-space: nowrap;
+}
+
+.topbar__button {
+  display: flex;
+  width: 4rem;
+  height: 4rem;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  font-size: 27px;
+  transition: all 0.15s ease;
+}
+
+.topbar__button:active {
+  transform: scale(0.95);
+}
+
+.topbar__button--text {
+  width: auto;
+  gap: 0.5rem;
+  padding: 0 1.25rem;
+}
+
+.topbar__button-label {
+  font-size: 15px;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
+
+@media (max-width: 1440px) {
+  .topbar {
+    top: 1.5rem;
+    right: 1.5rem;
+  }
+}
+
+@media (max-width: 1100px) {
+  .topbar {
+    top: 1.25rem;
+    right: 1.25rem;
+  }
+}
+
+@media (max-width: 700px) {
+  .topbar {
+    top: max(1rem, env(safe-area-inset-top));
+    right: max(1rem, env(safe-area-inset-right));
+  }
+}
+
 .nav-button {
   border: 1px solid rgba(203, 213, 225, 0.8);
   background: rgba(255, 255, 255, 0.78);
