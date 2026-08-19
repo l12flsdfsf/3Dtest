@@ -221,8 +221,7 @@ export default function App() {
     resumePreviousMode()
   }, [resumePreviousMode])
 
-  // 可点击目标（照片/展品/大屏）的悬停提示浮层：位置随鼠标实时更新。
-  // 照片 = 放大镜+黑胶囊堆叠（照片块宽 165 高 71+44），展品/大屏 = 小文字条。
+  // 展品/大屏的悬停提示浮层。图片提示由场景内的 3D 锚点处理。
   // mousemove 高频触发，直接改 DOM 不走 state，避免整棵树逐帧重渲染。
   const handleHoverHint = useCallback((hint) => {
     const tip = hoverTipRef.current
@@ -237,14 +236,16 @@ export default function App() {
     }
 
     const isPhoto = hint.kind === 'picture'
-    photo.style.display = isPhoto ? '' : 'none'
-    simple.style.display = isPhoto ? 'none' : ''
-    if (!isPhoto) {
-      const label = hint.kind === 'screen' ? (hint.playing ? '点击暂停' : '点击播放视频') : '点击查看'
-      if (text.textContent !== label) text.textContent = label
+    if (isPhoto) {
+      tip.style.opacity = '0'
+      return
     }
 
-    // 照片堆叠块缩放后约 145×101，光标偏右下放置并贴边收拢
+    photo.style.display = 'none'
+    simple.style.display = ''
+    const label = hint.kind === 'screen' ? (hint.playing ? '点击暂停' : '点击播放视频') : '点击查看'
+    if (text.textContent !== label) text.textContent = label
+
     const x = Math.min(hint.x + 14, window.innerWidth - 160)
     const y = Math.min(hint.y + 18, window.innerHeight - 112)
     tip.style.transform = `translate(${x}px, ${y}px)`
@@ -348,34 +349,13 @@ export default function App() {
       <PictureViewer key={picture?.url} photo={picture} onClose={closePicture} />
       <ExhibitModal exhibit={exhibit} onClose={closeExhibit} />
 
-      {/* 悬停提示浮层：位置由 handleHoverHint 直接更新，不触发 React 渲染。
-          照片提示复刻原 Unity 校史馆的「放大镜(71×71) + 黑胶囊(165×44)」竖向堆叠
-          （素材取自 Version.data 的 btn_viewmore / btn_viewmore_box_hov，图标按原部署水平翻转）；
-          展品提示保持纯文字小条 */}
+      {/* 悬停提示浮层：位置由 handleHoverHint 直接更新，不触发 React 渲染。 */}
       <div
         ref={hoverTipRef}
         className="hover-tip pointer-events-none absolute left-0 top-0 flex flex-col items-center"
         style={{ opacity: 0, transition: 'opacity 120ms ease' }}
       >
-        <div
-          ref={hoverTipPhotoRef}
-          className="tip-photo flex flex-col items-center"
-          style={{ display: 'none', filter: 'blur(0.6px)', transform: 'scale(0.88)' }}
-        >
-          <img src="/ui/viewmore.png" alt="" style={{ width: 71, height: 71 }} />
-          <div
-            className="flex items-center justify-center"
-            style={{
-              width: 165,
-              height: 44,
-              marginTop: -2,
-              backgroundImage: 'url(/ui/viewmore-box.png)',
-              backgroundSize: '100% 100%',
-            }}
-          >
-            <span className="text-[18px] leading-none text-white">点击查看大图</span>
-          </div>
-        </div>
+        <div ref={hoverTipPhotoRef} className="tip-photo" style={{ display: 'none' }} />
         <div
           ref={hoverTipExhibitRef}
           className="tip-exhibit rounded-md bg-slate-900/80 px-2.5 py-1.5 text-xs tracking-wide text-slate-50 shadow-md"

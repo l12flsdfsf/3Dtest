@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { useGLTF } from '@react-three/drei'
+import { Html, useGLTF } from '@react-three/drei'
 import { useThree, useFrame } from '@react-three/fiber'
 import { Octree } from 'three/examples/jsm/math/Octree.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
@@ -267,7 +267,6 @@ function buildWorldLayout(scene) {
 
 const sceneLayoutCache = new WeakMap()
 let ktx2TargetLogged = false
-
 // 模型资源缺陷兜底：场景里每个厅有一块深灰无贴图的"遮挡盒"（材质 phong1：
 // 关怀厅.020 / 电视厅.024 / 电影厅.014 / 技术设备厅.025 / 展望厅.016），
 // 其几何比海报墙的正面还靠前约 3cm，把整面墙的照片海报挡成黑墙。
@@ -565,6 +564,96 @@ function resolveSceneTarget(event, screenMesh) {
   return resolveHitTarget(nearest, screenMesh)
 }
 
+function getPictureCenter(nearest, camera) {
+  const object = nearest?.object
+  const geometry = object?.geometry
+  if (!geometry) return { point: nearest.point.clone(), corners: [] }
+
+  geometry.computeBoundingBox()
+  if (!geometry.boundingBox) return { point: nearest.point.clone(), corners: [] }
+
+  object.updateWorldMatrix(true, false)
+  const point = geometry.boundingBox.getCenter(new THREE.Vector3()).applyMatrix4(object.matrixWorld)
+  const localSize = geometry.boundingBox.getSize(new THREE.Vector3())
+  const worldScale = object.getWorldScale(new THREE.Vector3())
+  const spans = [localSize.x * worldScale.x, localSize.y * worldScale.y, localSize.z * worldScale.z].sort(
+    (a, b) => a - b,
+  )
+  const normal = nearest.face?.normal?.clone().transformDirection(object.matrixWorld).normalize()
+  const surfaceOffset = Math.max(0.003, Math.min(spans[0] * 0.55 + 0.002, 0.15))
+  if (normal && camera) {
+    if (normal.dot(camera.position.clone().sub(point)) < 0) normal.negate()
+    point.addScaledVector(normal, surfaceOffset)
+  }
+
+  const corners = []
+  for (const x of [geometry.boundingBox.min.x, geometry.boundingBox.max.x]) {
+    for (const y of [geometry.boundingBox.min.y, geometry.boundingBox.max.y]) {
+      for (const z of [geometry.boundingBox.min.z, geometry.boundingBox.max.z]) {
+        const corner = new THREE.Vector3(x, y, z).applyMatrix4(object.matrixWorld)
+        if (normal) corner.addScaledVector(normal, surfaceOffset)
+        corners.push(corner)
+      }
+    }
+  }
+
+  return {
+    point,
+    corners,
+  }
+}
+
+function PictureHoverHint({ point, corners, occlusionRef }) {
+  const contentRef = useRef(null)
+  const { camera, size } = useThree()
+  const projectedPointRef = useRef(new THREE.Vector3())
+
+  useFrame(() => {
+    const content = contentRef.current
+    if (!content || !corners.length) return
+
+    let minX = Infinity
+    let minY = Infinity
+    let maxX = -Infinity
+    let maxY = -Infinity
+    for (const corner of corners) {
+      const projected = projectedPointRef.current.copy(corner).project(camera)
+      minX = Math.min(minX, (projected.x + 1) * size.width * 0.5)
+      maxX = Math.max(maxX, (projected.x + 1) * size.width * 0.5)
+      minY = Math.min(minY, (1 - projected.y) * size.height * 0.5)
+      maxY = Math.max(maxY, (1 - projected.y) * size.height * 0.5)
+    }
+
+    const scale = Math.min(((maxX - minX) * 0.6) / 165, ((maxY - minY) * 0.6) / 113, 1)
+    content.style.transform = `scale(${Math.max(scale, 0).toFixed(3)})`
+    content.style.opacity = scale >= 0.16 ? '1' : '0'
+  })
+
+  return (
+    <Html position={point} center occlude={[occlusionRef]} style={{ pointerEvents: 'none' }}>
+      <div
+        ref={contentRef}
+        className="flex flex-col items-center"
+        style={{ opacity: 0, transform: 'scale(0)', transformOrigin: 'center' }}
+      >
+        <img src="/ui/viewmore.png" alt="" style={{ width: 71, height: 71 }} />
+        <div
+          className="flex items-center justify-center"
+          style={{
+            width: 165,
+            height: 44,
+            marginTop: -2,
+            backgroundImage: 'url(/ui/viewmore-box.png)',
+            backgroundSize: '100% 100%',
+          }}
+        >
+          <span className="text-[18px] leading-none text-white">点击查看大图</span>
+        </div>
+      </div>
+    </Html>
+  )
+}
+
 // 大屏底部进度条：可拖拽跳转。可见细条不参与射线，命中由加高的隐形热区承担；
 // 拖动期间在窗口层面跟踪指针，把射线与进度条所在平面的交点映射为播放进度。
 // barInteractRef：记录最近一次条带交互时间，GltfModel 据此丢弃紧随其后
@@ -679,6 +768,10 @@ export function GltfModel({
   onHoverHint,
 }) {
   const gl = useThree((state) => state.gl)
+  const camera = useThree((state) => state.camera)
+  const sceneRoot = useThree((state) => state.scene)
+  const occlusionRef = useRef(sceneRoot)
+  occlusionRef.current = sceneRoot
   // KTX2（GPU 压缩纹理）支持：basis 转码器放 public/basis/，按当前渲染器能力选择转码目标。
   // 注意：桌面 ANGLE 上 BC7(bptc)/模拟 ETC2/ASTC 在部分驱动上会把 sRGB 压缩贴图
   // 采样成黑色或随视角闪烁（undefined behavior）；S3TC(BC1/BC3) 是 D3D 原生格式，
@@ -984,12 +1077,20 @@ export function GltfModel({
   }
 
   // 悬停提示：与点击共用 resolveSceneTarget，保证「提示可点 = 真的能点」。
-  // 光标变化时切换 body 光标（与奖杯悬停一致），坐标实时上报给 DOM 浮层。
+  // 光标变化时切换 body 光标（与奖杯悬停一致），坐标上报给 DOM 浮层。
   const hoverKindRef = useRef(null)
+  const hoverPictureIdRef = useRef(null)
+  const [hoverPicture, setHoverPictureState] = useState(null)
+
+  const setPictureHover = (picture) => {
+    if (picture?.id === hoverPictureIdRef.current) return
+    hoverPictureIdRef.current = picture?.id ?? null
+    setHoverPictureState(picture)
+  }
 
   const setHoverHint = (hint) => {
     const kind = hint ? hint.kind : null
-    if (kind) {
+    if (kind && kind !== 'picture') {
       onHoverHint?.(hint)
     } else if (hoverKindRef.current !== null) {
       onHoverHint?.(null)
@@ -1010,6 +1111,16 @@ export function GltfModel({
     const nearest = nearestNonGlassHit(event)
     if (nearest && nearest.object !== event.object) return
     const target = resolveHitTarget(nearest, screenRef.current?.mesh)
+    const targetId =
+      target?.kind === 'picture' ? `${nearest.object.uuid}:${target.picture.texture.uuid}` : null
+    setPictureHover(
+      targetId
+        ? {
+            id: targetId,
+            ...getPictureCenter(nearest, camera),
+          }
+        : null,
+    )
     setHoverHint(
       target
         ? {
@@ -1026,6 +1137,7 @@ export function GltfModel({
   useEffect(() => {
     if (hoverEnabled) return undefined
     hoverKindRef.current = null
+    setPictureHover(null)
     document.body.style.cursor = 'auto'
     onHoverHint?.(null)
     return undefined
@@ -1044,8 +1156,18 @@ export function GltfModel({
         object={scene}
         onClick={handleSceneClick}
         onPointerMove={handleScenePointerMove}
-        onPointerOut={() => setHoverHint(null)}
+        onPointerOut={() => {
+          setPictureHover(null)
+          setHoverHint(null)
+        }}
       />
+      {hoverPicture ? (
+        <PictureHoverHint
+          point={hoverPicture.point}
+          corners={hoverPicture.corners}
+          occlusionRef={occlusionRef}
+        />
+      ) : null}
       {screenBar ? (
         <ScreenProgressBar bar={screenBar} videoRef={screenVideoRef} barInteractRef={barInteractRef} />
       ) : null}

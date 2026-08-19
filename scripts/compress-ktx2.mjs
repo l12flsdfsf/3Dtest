@@ -10,8 +10,20 @@
 // 依赖：PATH 里有 ktx（KTX-Software 4.4+），node_modules 里有 @gltf-transform 与 sharp。
 
 import { NodeIO } from '@gltf-transform/core'
-import { KHRTextureBasisu } from '@gltf-transform/extensions'
+import {
+  EXTMeshoptCompression,
+  KHRMaterialsClearcoat,
+  KHRMaterialsEmissiveStrength,
+  KHRMaterialsIOR,
+  KHRMaterialsSheen,
+  KHRMaterialsSpecular,
+  KHRMaterialsTransmission,
+  KHRMaterialsVolume,
+  KHRMeshQuantization,
+  KHRTextureBasisu,
+} from '@gltf-transform/extensions'
 import { listTextureSlots } from '@gltf-transform/functions'
+import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer'
 import { spawn } from 'node:child_process'
 import fs from 'node:fs/promises'
 import { existsSync } from 'node:fs'
@@ -26,7 +38,18 @@ const argOf = (name, fallback) => {
 }
 const INPUT = path.join(ROOT, argOf('--input', 'models-src/scene.glb'))
 const OUTPUT = path.join(ROOT, argOf('--out', 'public/models/scene.ktx2.glb'))
+const EXTENSIONS_FROM = argOf('--extensions-from', '')
 const WORK = path.join(ROOT, '.tmp-ktx/pipeline')
+const KTX_BIN = process.env.KTX_BIN || 'ktx'
+const MATERIAL_EXTENSION_NAMES = [
+  'KHR_materials_clearcoat',
+  'KHR_materials_emissive_strength',
+  'KHR_materials_ior',
+  'KHR_materials_sheen',
+  'KHR_materials_specular',
+  'KHR_materials_transmission',
+  'KHR_materials_volume',
+]
 
 const LEVEL = Number(argOf('--level', 3))
 const JOBS = Number(argOf('--jobs', 8))
@@ -53,6 +76,79 @@ function run(command, cmdArgs) {
 }
 
 // 纯 JS 图片头解析（PNG IHDR / JPEG SOF），避免在本进程使用 sharp
+async function readGLTFJSON(filePath) {
+  const bytes = await fs.readFile(filePath)
+  if (path.extname(filePath).toLowerCase() === '.gltf') {
+    return JSON.parse(bytes.toString('utf8'))
+  }
+  if (bytes.readUInt32LE(16) !== 0x4e4f534a) {
+    throw new Error(`Expected a GLB JSON chunk: ${filePath}`)
+  }
+  const jsonLength = bytes.readUInt32LE(12)
+  return JSON.parse(bytes.subarray(20, 20 + jsonLength).toString('utf8').trim())
+}
+
+async function restoreMaterialExtensions(outputPath, sourcePath) {
+  const [outputBytes, sourceJSON] = await Promise.all([
+    fs.readFile(outputPath),
+    readGLTFJSON(sourcePath),
+  ])
+  const jsonLength = outputBytes.readUInt32LE(12)
+  const outputJSON = JSON.parse(outputBytes.subarray(20, 20 + jsonLength).toString('utf8').trim())
+  const sourceMaterials = sourceJSON.materials || []
+  const outputMaterials = outputJSON.materials || []
+
+  if (sourceMaterials.length !== outputMaterials.length) {
+    throw new Error('Cannot restore material extensions: material counts differ')
+  }
+  const sourceByName = new Map(sourceMaterials.map((material) => [material.name, material]))
+  if (sourceByName.size !== sourceMaterials.length) {
+    throw new Error('Cannot restore material extensions: source material names are not unique')
+  }
+
+  for (let index = 0; index < sourceMaterials.length; index += 1) {
+    const outputMaterial = outputMaterials[index]
+    const sourceMaterial = sourceByName.get(outputMaterial.name)
+    if (!sourceMaterial) {
+      throw new Error(`Cannot restore material extensions: material #${index} has no source match`)
+    }
+
+    const sourceExtensions = sourceMaterial.extensions || {}
+    const outputExtensions = outputMaterial.extensions || {}
+    for (const extensionName of MATERIAL_EXTENSION_NAMES) {
+      if (sourceExtensions[extensionName] !== undefined) {
+        outputExtensions[extensionName] = sourceExtensions[extensionName]
+      } else {
+        delete outputExtensions[extensionName]
+      }
+    }
+    if (Object.keys(outputExtensions).length) {
+      outputMaterial.extensions = outputExtensions
+    } else {
+      delete outputMaterial.extensions
+    }
+  }
+
+  const used = new Set(outputJSON.extensionsUsed || [])
+  for (const extensionName of MATERIAL_EXTENSION_NAMES) {
+    if ((sourceJSON.extensionsUsed || []).includes(extensionName)) used.add(extensionName)
+  }
+  outputJSON.extensionsUsed = [...used]
+
+  const jsonBytes = Buffer.from(JSON.stringify(outputJSON), 'utf8')
+  const paddedLength = Math.ceil(jsonBytes.length / 4) * 4
+  const remainingChunks = outputBytes.subarray(20 + jsonLength)
+  const rebuilt = Buffer.alloc(20 + paddedLength + remainingChunks.length)
+  outputBytes.copy(rebuilt, 0, 0, 12)
+  rebuilt.writeUInt32LE(rebuilt.length, 8)
+  rebuilt.writeUInt32LE(paddedLength, 12)
+  outputBytes.copy(rebuilt, 16, 16, 20)
+  jsonBytes.copy(rebuilt, 20)
+  rebuilt.fill(0x20, 20 + jsonBytes.length, 20 + paddedLength)
+  remainingChunks.copy(rebuilt, 20 + paddedLength)
+  await fs.writeFile(outputPath, rebuilt)
+}
+
 function readImageSize(source, isPng) {
   // getImage() 返回的 Uint8Array 无 Buffer 方法，转零拷贝 Buffer 视图
   const bytes = Buffer.isBuffer(source)
@@ -85,8 +181,24 @@ async function main() {
   await fs.mkdir(WORK, { recursive: true })
 
   // ---------------------------------------------------------------- 读取源模型
-  const io = new NodeIO()
-  io.registerExtensions([KHRTextureBasisu])
+  const io = new NodeIO().registerDependencies({
+    'meshopt.decoder': MeshoptDecoder,
+    'meshopt.encoder': MeshoptEncoder,
+  })
+  // Register source material extensions before reading, otherwise NodeIO drops
+  // their properties when the KTX2 textures are written back to the GLB.
+  io.registerExtensions([
+    EXTMeshoptCompression,
+    KHRMeshQuantization,
+    KHRTextureBasisu,
+    KHRMaterialsClearcoat,
+    KHRMaterialsEmissiveStrength,
+    KHRMaterialsIOR,
+    KHRMaterialsSheen,
+    KHRMaterialsSpecular,
+    KHRMaterialsTransmission,
+    KHRMaterialsVolume,
+  ])
   const doc = await io.read(INPUT)
   const textures = doc.getRoot().listTextures()
   console.log(`模型纹理数：${textures.length}`)
@@ -202,7 +314,7 @@ async function main() {
 
       let attempt = 0
       for (;;) {
-        const { code, stderr } = await run('ktx', params)
+        const { code, stderr } = await run(KTX_BIN, params)
         if (code === 0 && existsSync(outPath)) break
         attempt += 1
         if (attempt > 2) {
@@ -243,6 +355,9 @@ async function main() {
     doc.createExtension(KHRTextureBasisu).setRequired(true)
   }
   await io.write(OUTPUT, doc)
+  if (EXTENSIONS_FROM) {
+    await restoreMaterialExtensions(OUTPUT, path.join(ROOT, EXTENSIONS_FROM))
+  }
 
   const outStat = await fs.stat(OUTPUT)
   console.log(`完成：${OUTPUT}（${(outStat.size / 1048576).toFixed(1)}MB）`)
