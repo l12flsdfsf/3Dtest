@@ -1,4 +1,7 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react'
+import * as THREE from 'three'
+import { useThree } from '@react-three/fiber'
+import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js'
 import { CONFIG } from '../data/config.js'
 
 function AimedSpotLight({
@@ -38,6 +41,27 @@ function AimedSpotLight({
 }
 
 export function Lights() {
+  const gl = useThree((state) => state.gl)
+  const scene = useThree((state) => state.scene)
+
+  // 环境贴图补光（IBL）：模型原版（Unity）带天空盒/反射探针，three 场景此前只有
+  // 分析型灯光——金属材质（玻璃等）没有环境可反射时渲染成黑色，展厅边缘的柜内
+  // 展品也只剩环境光、观感偏暗。用中性室内环境生成 PMREM 做全场柔和补光，
+  // 不替换背景色，只影响材质光照；强度压低保持整体素净。
+  useEffect(() => {
+    const pmrem = new THREE.PMREMGenerator(gl)
+    const envRT = pmrem.fromScene(new RoomEnvironment(), 0.04)
+    scene.environment = envRT.texture
+    // 强度需克制：场景已有环境光+半球光打底，IBL 只补暗部（金属反射/柜内展品）；
+    // 调高会让整体发白蒙雾、自发光面板（大屏/照片墙）被镜面反射罩灰。
+    scene.environmentIntensity = 0.3
+    return () => {
+      scene.environment = null
+      envRT.dispose()
+      pmrem.dispose()
+    }
+  }, [gl, scene])
+
   const roomLights = useMemo(() => {
     const corridorHalf = CONFIG.hall.corridorHalf ?? 4
     const roomDepth = CONFIG.hall.depth / 2 - corridorHalf

@@ -7,6 +7,9 @@
 //
 // 用法：node scripts/compress-ktx2.mjs [--input models-src/scene.glb] [--out public/models/x.glb]
 //       [--level 3] [--jobs 8] [--max-edge 2048] [--rdo-l 4]
+//       [--extensions-from public/models/0817/展厅.gltf]
+// 重要：--extensions-from 必须指向未压缩的原版文件！写出时会把原版的透射/体积等
+// 材质扩展拷回产物（丢失 KHR_materials_transmission 会让展柜玻璃变成不透明灰片）。
 // 依赖：PATH 里有 ktx（KTX-Software 4.4+），node_modules 里有 @gltf-transform 与 sharp。
 
 import { NodeIO } from '@gltf-transform/core'

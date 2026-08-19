@@ -289,6 +289,47 @@ function removeOccludingBlankPanels(scene) {
   return doomed.length
 }
 
+// 展柜玻璃材质修复：源模型的「玻璃」材质是 metalness=1 + roughness=0（Unity 原版靠
+// 天空盒反射呈现透亮质感）。PBR 里金属没有漫反射，颜色只来自环境反射；本项目
+// 场景没有环境贴图，金属玻璃渲染成纯黑，21% 透明度叠加后像蒙黑纱。
+// 改成非金属清玻璃：低粗糙度保留灯光高光与环境反射（能看出玻璃存在），
+// 中性灰 + 18% 透明度保证柜内展品清晰可见。
+function fixShowcaseGlassMaterials(scene) {
+  let fixed = 0
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    for (const material of materials) {
+      if (!material || material.name !== '玻璃') continue
+      material.metalness = 0.35
+      material.roughness = 0.08
+      material.color.setScalar(0.82)
+      material.opacity = 0.25
+      material.needsUpdate = true
+      fixed += 1
+    }
+  })
+  if (fixed) console.info(`[gltf] 已修复 ${fixed} 处展柜玻璃材质（金属黑玻璃 → 清玻璃）`)
+  return fixed
+}
+
+// 自发光面板（大屏、照片墙、展板灯箱）不吃环境反射：它们靠 emissive 自照明，
+// IBL 的镜面反射只会在画面上罩一层白纱，让视频/照片看起来发灰发蒙。
+function suppressEnvReflectionOnEmissivePanels(scene) {
+  let count = 0
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    for (const material of materials) {
+      if (!material?.emissiveMap || material.envMapIntensity === 0) continue
+      material.envMapIntensity = 0
+      count += 1
+    }
+  })
+  if (count) console.info(`[gltf] 已关闭 ${count} 处自发光面板的环境反射`)
+  return count
+}
+
 // 单个网格的三角形总数（多材质分组时索引为准）
 function countMeshTriangles(mesh) {
   const geometries = Array.isArray(mesh.geometry) ? mesh.geometry : [mesh.geometry]
@@ -801,6 +842,8 @@ export function GltfModel({
   })
   const worldLayout = useMemo(() => {
     removeOccludingBlankPanels(scene) // 必须先于布局/碰撞体构建
+    fixShowcaseGlassMaterials(scene)
+    suppressEnvReflectionOnEmissivePanels(scene)
     if (typeof window !== 'undefined') window.__gltfScene = scene // 调试用：自动化测试检查场景网格
     return getSceneLayout(scene)
   }, [scene])
@@ -942,6 +985,8 @@ export function GltfModel({
       material.emissiveMap = texture
       material.emissive.set(0xffffff)
       material.color.set(0xffffff)
+      // 自发光面板不吃环境反射：IBL 的镜面反射会在视频上罩一层白纱
+      material.envMapIntensity = 0
       material.needsUpdate = true
 
       // 进度条几何参数（JSX 组件按世界坐标摆放）。
