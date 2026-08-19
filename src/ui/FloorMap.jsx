@@ -189,6 +189,8 @@ export function FloorMap({ currentHall, onHallClick }) {
           })}
         </g>
 
+        {/* \u88c5\u9970\u5c42\uff08\u8fb9\u6846/\u6587\u5b57/\u8fb9\u7ebf/\u7bad\u5934/\u5b9a\u4f4d\u70b9\uff09\u4e0d\u53c2\u4e0e\u547d\u4e2d\uff0c\u70b9\u51fb\u7a7f\u900f\u5230\u4e0b\u65b9\u7684\u5206\u5385\u70b9\u51fb\u533a */}
+        <g pointerEvents="none">
         <rect
           x={FRAME_INSET}
           y={FRAME_INSET}
@@ -265,6 +267,7 @@ export function FloorMap({ currentHall, onHallClick }) {
         <g>
           <circle cx={markerX} cy={markerY} r={11} fill="#2563eb" opacity={0.16} />
           <circle cx={markerX} cy={markerY} r={5} fill="#2563eb" />
+        </g>
         </g>
       </svg>
     </div>

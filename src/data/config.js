@@ -36,6 +36,16 @@ export const CONFIG = {
     runMultiplier: 1.75,
   },
   modelUrl: resolveModelUrl(),
+  // 进门正对大屏（材质名「1屏」的可见面板；其后的「2屏」内容板被它完全遮挡）的视频：
+  // 点击播放/暂停，音量随人物距离衰减
+  screenVideo: {
+    url: '/videos/enter-screen.mp4',
+    material: '1屏',
+    vFlip: true, // 该面板 UV 上下颠倒，视频需垂直翻转
+    maxVolume: 0.9,
+    fullVolumeDistance: 4, // 距离内满音量
+    muteDistance: 18, // 距离外静音
+  },
   autoRoam: {
     loop: true,
     speed: 1.7,

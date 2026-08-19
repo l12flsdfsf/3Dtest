@@ -408,23 +408,37 @@ function toModelPosition(x, z, worldLayout) {
   return invertLayoutTransform(x, z, worldLayout?.transform) ?? { x, z }
 }
 
-// 地图点击传送：展厅入口（厅前走廊处，模型世界坐标）
+// 六厅朝走廊一侧门洞的 canonical x（沿墙射线扫描实测 scene-0817.glb；
+// 厅中心与门心偏差 0~0.55m，直接用厅中心会让门口在画面里偏。换模型后用
+// scripts/probe-hall-doors.mjs 重测更新）
+export const HALL_DOOR_CANONICAL_X = {
+  care: 7.9,
+  broadcast: 0.55,
+  tv: -7.5,
+  cinema: -7.5,
+  tech: 0.55,
+  future: 7.9,
+}
+
+// 地图点击传送：站到门洞正前方的走廊处，正对门口
 export function getHallEntrancePosition(hallId, worldLayout) {
   const hall = HALLS.find((h) => h.id === hallId)
   if (!hall) return null
 
   const isRightSide = getHallWorldWall(hall) === 'front'
   const canonicalZ = isRightSide ? CORRIDOR_HALF - 1.5 : -CORRIDOR_HALF + 1.5
-  const position = toModelPosition(hall.center, canonicalZ, worldLayout)
+  const doorX = HALL_DOOR_CANONICAL_X[hallId] ?? hall.center
+  const position = toModelPosition(doorX, canonicalZ, worldLayout)
   return { x: position.x, z: position.z, y: CONFIG.player.eyeHeight }
 }
 
-// 传送后的注视点：展厅中心
+// 传送后的注视点：沿门洞轴线看进厅内（门口显示在画面正中）
 export function getHallCenterPosition(hallId, worldLayout) {
   const hall = HALLS.find((h) => h.id === hallId)
   if (!hall) return null
 
   const canonical = getHallCanonicalCenter(hall)
-  const position = toModelPosition(canonical.x, canonical.z, worldLayout)
+  const doorX = HALL_DOOR_CANONICAL_X[hallId] ?? hall.center
+  const position = toModelPosition(doorX, canonical.z, worldLayout)
   return { x: position.x, y: CONFIG.player.eyeHeight, z: position.z }
 }

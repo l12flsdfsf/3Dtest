@@ -19,7 +19,15 @@ const tipState = () =>
   page.evaluate(() => {
     const tip = document.querySelector('.hover-tip')
     if (!tip) return { missing: true }
-    return { opacity: tip.style.opacity, text: tip.textContent, cursor: document.body.style.cursor }
+    const photo = document.querySelector('.tip-photo')
+    const exhibit = document.querySelector('.tip-exhibit')
+    return {
+      opacity: tip.style.opacity,
+      photoShown: Boolean(photo) && photo.style.display !== 'none',
+      photoText: photo?.textContent?.trim() ?? '',
+      exhibitShown: Boolean(exhibit) && exhibit.style.display !== 'none',
+      cursor: document.body.style.cursor,
+    }
   })
 
 // 找一块贴在竖直墙上的照片网格：材质名 材质/材质.NNN 且有 emissiveMap，包围盒薄轴为水平方向
@@ -82,7 +90,7 @@ if (!photo) {
     await page.mouse.move(px, py)
     await page.waitForTimeout(400)
     const state = await tipState()
-    if (state.text === '点击查看大图' && state.opacity === '1') {
+    if (state.photoShown && state.photoText === '点击查看大图' && state.opacity === '1') {
       shown = true
       check(state.cursor === 'pointer', `照片悬停光标 pointer（实际 "${state.cursor}"）`)
       await page.screenshot({ path: `${OUT}hover-photo.png` })
@@ -141,7 +149,7 @@ if (!exhibit) {
   await page.mouse.move(px, py)
   await page.waitForTimeout(400)
   const state = await tipState()
-  check(state.text === '点击查看介绍' && state.opacity === '1', `展品上出现「点击查看介绍」（实际 "${state.text}" opacity=${state.opacity}）`)
+  check(state.exhibitShown && state.opacity === '1', `展品上出现「点击查看介绍」（exhibitShown=${state.exhibitShown} opacity=${state.opacity}）`)
   await page.screenshot({ path: `${OUT}hover-exhibit.png` })
 }
 

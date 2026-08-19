@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { useGLTF } from '@react-three/drei'
-import { useThree } from '@react-three/fiber'
+import { useThree, useFrame } from '@react-three/fiber'
 import { Octree } from 'three/examples/jsm/math/Octree.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { CONFIG } from '../data/config.js'
 import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
-import { CLICKABLE_EXHIBITS, EXHIBIT_EXCLUDES } from '../data/exhibits.js'
+import { CLICKABLE_EXHIBITS, EXHIBIT_EXCLUDES, MESH_NAME_TO_EXHIBIT, getExhibitInfo } from '../data/exhibits.js'
 import { findPictureTexture, textureToPhoto } from './pictureTexture.js'
 
 function listMaterialNames(material) {
@@ -463,21 +463,31 @@ function isGlassHit(hit) {
   return material.transparent === true && (material.opacity ?? 1) <= 0.6
 }
 
-// 展柜实物展品识别：材质 map 命名为「中文名_basecolor」（如 手摇式录音机_basecolor），
-// 仅 CLICKABLE_EXHIBITS 白名单内的可点击（分批接入），书本等排除项不参与
+// 展柜实物展品识别（两条路径）：
+// 1. 材质 map 命名为「中文名_basecolor」（如 手摇式录音机_basecolor），书本等排除项不参与；
+// 2. 无命名贴图的实物（照片扫描件/留声机组等）按 mesh 名反查 MESH_NAME_TO_EXHIBIT。
+// 两条路径都要求在 CLICKABLE_EXHIBITS 白名单内。
 function findHitExhibit(hit) {
   const material = getHitMaterial(hit)
   const mapName = typeof material?.map?.name === 'string' ? material.map.name : ''
   const match = mapName.match(/^(.+)_basecolor$/i)
-  if (!match) return null
+  if (match) {
+    const name = match[1].trim()
+    if (/[一-鿿]/.test(name) && !EXHIBIT_EXCLUDES.has(name) && CLICKABLE_EXHIBITS.has(name)) {
+      return { name, mapName }
+    }
+  }
 
-  const name = match[1].trim()
-  if (!/[一-鿿]/.test(name) || EXHIBIT_EXCLUDES.has(name)) return null
-  if (!CLICKABLE_EXHIBITS.has(name)) return null
-  return { name, mapName }
+  const meshKey = MESH_NAME_TO_EXHIBIT[hit?.object?.name]
+  if (meshKey && CLICKABLE_EXHIBITS.has(meshKey)) {
+    return { name: meshKey, mapName: null, meshNames: getExhibitInfo(meshKey).meshNames }
+  }
+
+  return null
 }
 
-// 展品 3D 预览：把同名贴图的网格克隆到独立组（几何/贴图与主场景共享，不额外占显存），
+// 展品 3D 预览：把命中展品的网格克隆到独立组（几何/贴图与主场景共享，不额外占显存），
+// 匹配条件 = 贴图名相同 或 mesh 名在展品登记的 meshNames 里（组类展品同组一起展示），
 // 按世界包围盒居中并归一化尺寸，供弹窗内独立 Canvas 旋转查看。
 const _previewBox = new THREE.Box3()
 const _previewCenter = new THREE.Vector3()
@@ -486,13 +496,19 @@ const _decomposePosition = new THREE.Vector3()
 const _decomposeQuaternion = new THREE.Quaternion()
 const _decomposeScale = new THREE.Vector3()
 
-function buildExhibitPreview(scene, mapName) {
+function buildExhibitPreview(scene, exhibit) {
+  const mapName = exhibit.mapName
+  const meshNames = exhibit.meshNames ? new Set(exhibit.meshNames) : null
   const group = new THREE.Group()
 
   scene.traverse((object) => {
     if (!object.isMesh || object === scene) return
-    const materials = Array.isArray(object.material) ? object.material : [object.material]
-    if (!materials.some((material) => material?.map?.name === mapName)) return
+    if (meshNames) {
+      if (!meshNames.has(object.name)) return
+    } else {
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      if (!materials.some((material) => material?.map?.name === mapName)) return
+    }
 
     const clone = object.clone()
     object.updateWorldMatrix(true, false)
@@ -524,9 +540,13 @@ function nearestNonGlassHit(event) {
   return (event.intersections ?? []).filter((hit) => !isGlassHit(hit))[0] ?? null
 }
 
-// 解析命中面上的可交互目标：展柜实物 → { kind: 'exhibit' }；照片/展板 → { kind: 'picture' }
-function resolveHitTarget(nearest) {
+// 解析命中面上的可交互目标：进门大屏 → { kind: 'screen' }；展柜实物 → { kind: 'exhibit' }；
+// 墙上照片 → { kind: 'picture' }
+function resolveHitTarget(nearest, screenMesh) {
   if (!nearest) return null
+
+  // 进门大屏：命中视频屏网格 → 点击播放/暂停（按网格身份判定，最确定）
+  if (screenMesh && nearest.object === screenMesh) return { kind: 'screen' }
 
   // 展柜实物展品优先：命名贴图判定是确定性的，且展品贴图不应再走图片流程
   const exhibit = findHitExhibit(nearest)
@@ -539,10 +559,114 @@ function resolveHitTarget(nearest) {
 
 // 从 R3F 事件的全部命中里取「最近且非玻璃」的命中并解析可交互目标。
 // 点击与悬停提示共用，保证出现提示的目标一定可点。
-function resolveSceneTarget(event) {
+function resolveSceneTarget(event, screenMesh) {
   const nearest = nearestNonGlassHit(event)
   if (!nearest || nearest.object !== event.object) return null
-  return resolveHitTarget(nearest)
+  return resolveHitTarget(nearest, screenMesh)
+}
+
+// 大屏底部进度条：可拖拽跳转。可见细条不参与射线，命中由加高的隐形热区承担；
+// 拖动期间在窗口层面跟踪指针，把射线与进度条所在平面的交点映射为播放进度。
+// barInteractRef：记录最近一次条带交互时间，GltfModel 据此丢弃紧随其后
+// 合成出的面板点击（否则点一下进度条会同时触发播放/暂停切换）。
+function ScreenProgressBar({ bar, videoRef, barInteractRef }) {
+  const { camera, gl } = useThree()
+  const fillRef = useRef(null)
+  const draggingRef = useRef(false)
+
+  const ratioFromX = (x) =>
+    THREE.MathUtils.clamp((x - (bar.x - bar.width / 2)) / bar.width, 0, 1)
+
+  const seek = (ratio) => {
+    const video = videoRef.current
+    if (video?.duration) video.currentTime = ratio * video.duration
+  }
+
+  const handlePointerDown = (event) => {
+    // 阻止其后分发到面板的点击（播放/暂停），并阻断 Player 的拖拽转视角
+    event.stopPropagation()
+    event.nativeEvent?.stopImmediatePropagation?.()
+    if (barInteractRef) barInteractRef.current = performance.now()
+    draggingRef.current = true
+    seek(ratioFromX(event.point.x))
+  }
+
+  useEffect(() => {
+    const raycaster = new THREE.Raycaster()
+    const ndc = new THREE.Vector2()
+    const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -bar.z)
+    const hit = new THREE.Vector3()
+
+    const onMove = (event) => {
+      if (!draggingRef.current) return
+      const rect = gl.domElement.getBoundingClientRect()
+      ndc.set(
+        ((event.clientX - rect.left) / rect.width) * 2 - 1,
+        -((event.clientY - rect.top) / rect.height) * 2 + 1,
+      )
+      raycaster.setFromCamera(ndc, camera)
+      if (raycaster.ray.intersectPlane(plane, hit)) seek(ratioFromX(hit.x))
+    }
+    const onUp = () => {
+      draggingRef.current = false
+    }
+
+    window.addEventListener('pointermove', onMove)
+    window.addEventListener('pointerup', onUp)
+    return () => {
+      window.removeEventListener('pointermove', onMove)
+      window.removeEventListener('pointerup', onUp)
+    }
+  }, [bar, camera, gl])
+
+  // 按播放进度推进填充条（左端对齐）
+  useFrame(() => {
+    const video = videoRef.current
+    const fill = fillRef.current
+    if (!video || !fill || !video.duration) return
+    const ratio = THREE.MathUtils.clamp(video.currentTime / video.duration, 0, 1)
+    fill.scale.x = Math.max(ratio, 0.001)
+    fill.position.x = bar.x - bar.width / 2 + (bar.width * ratio) / 2
+  })
+
+  return (
+    <group>
+      <mesh name="screen-progress-rail" position={[bar.x, bar.y, bar.z]} raycast={() => {}}>
+        <planeGeometry args={[bar.width, 0.05]} />
+        <meshBasicMaterial
+          color="#0f172a"
+          transparent
+          opacity={0.5}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      <mesh name="screen-progress-fill" ref={fillRef} position={[bar.x, bar.y, bar.z]} raycast={() => {}}>
+        <planeGeometry args={[bar.width, 0.05]} />
+        <meshBasicMaterial
+          color="#f0e6cc"
+          transparent
+          opacity={0.95}
+          depthWrite={false}
+          side={THREE.DoubleSide}
+        />
+      </mesh>
+      {/* 加高的隐形拖拽热区（不渲染，只承担命中与拖拽） */}
+      <mesh
+        position={[bar.x, bar.y, bar.z]}
+        onPointerDown={handlePointerDown}
+        onPointerOver={() => {
+          document.body.style.cursor = 'ew-resize'
+        }}
+        onPointerOut={() => {
+          document.body.style.cursor = 'pointer' // 热区贴着屏面，移出即回到「可点击大屏」光标
+        }}
+      >
+        <planeGeometry args={[bar.width, 0.26]} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+      </mesh>
+    </group>
+  )
 }
 
 export function GltfModel({
@@ -649,7 +773,176 @@ export function GltfModel({
     }
   }, [collisionWorldRef, scene])
 
-  // 点击墙上照片/展柜实物：
+  // ---- 进门大屏视频：进场静音自动播放（首次任意点击恢复声音），点击播放/暂停，
+  // 进度条可拖拽跳转，音量随人物距离衰减 ----
+  // 定位「1屏」网格并把视频贴图换上屏；useGLTF 缓存场景，卸载时须还原材质
+  const screenRef = useRef(null) // { mesh, material, center }
+  const screenVideoRef = useRef(null)
+  const barInteractRef = useRef(0) // 最近一次进度条交互时间（丢弃其后 0.8s 内合成的面板点击）
+  const [screenBar, setScreenBar] = useState(null)
+
+  useEffect(() => {
+    let disposed = false
+
+    scene.traverse((object) => {
+      if (screenRef.current || !object.isMesh) return
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      const material = materials.find((item) => item?.name === CONFIG.screenVideo.material)
+      if (!material) return
+      const box = new THREE.Box3().setFromObject(object)
+      const center = box.getCenter(new THREE.Vector3())
+      const size = box.getSize(new THREE.Vector3())
+      screenRef.current = { mesh: object, material, center, size }
+    })
+    const screen = screenRef.current
+    if (!screen) return undefined
+
+    const { material } = screen
+    const original = {
+      map: material.map,
+      emissiveMap: material.emissiveMap,
+      emissive: material.emissive.clone(),
+      color: material.color.clone(),
+    }
+
+    const video = document.createElement('video')
+    video.src = CONFIG.screenVideo.url
+    video.loop = true
+    video.playsInline = true
+    video.preload = 'auto'
+    // 浏览器禁止带声自动播放：先静音自动播放，首次任意点击恢复声音（与背景音乐同套路）
+    video.muted = true
+    video.autoplay = true
+    screenVideoRef.current = video
+    if (typeof window !== 'undefined') window.__screenVideo = video // 调试/自动化测试
+
+    let texture = null
+    const onReady = () => {
+      if (disposed) return
+      // 视频上屏：map/emissiveMap 一起换成视频贴图，屏幕自发光不依赖场景灯光；
+      // 原色 #e7e7e7 会给画面染灰，换白色让视频原色显示
+      texture = new THREE.VideoTexture(video)
+      texture.colorSpace = THREE.SRGBColorSpace
+      // 等比铺满面板（cover）：按面板与视频的宽高比裁掉多出的边
+      const videoAspect = (video.videoWidth || 16) / (video.videoHeight || 9)
+      const panelAspect = screen.size.x / screen.size.y
+      let repeatX = 1
+      let offsetX = 0
+      let repeatY = 1
+      let offsetY = 0
+      if (videoAspect > panelAspect) {
+        repeatX = panelAspect / videoAspect
+        offsetX = (1 - repeatX) / 2
+      } else {
+        repeatY = videoAspect / panelAspect
+        offsetY = (1 - repeatY) / 2
+      }
+      // 该面板 UV 上下颠倒：采样区间沿 v 反向实现垂直翻转
+      // （不用 texture.flipY——该上传参数对视频贴图无效，实测不生效）
+      if (CONFIG.screenVideo.vFlip) {
+        repeatY = -repeatY
+        offsetY = 1 - offsetY
+      }
+      texture.repeat.set(repeatX, repeatY)
+      texture.offset.set(offsetX, offsetY)
+      material.map = texture
+      material.emissiveMap = texture
+      material.emissive.set(0xffffff)
+      material.color.set(0xffffff)
+      material.needsUpdate = true
+
+      // 进度条几何参数（JSX 组件按世界坐标摆放）。
+      // 距屏面 8cm：太贴近（1-2cm）时点击射线在热区与面板间的浮点误差内
+      // 翻转命中顺序，拖拽会被面板点击（播放/暂停）抢走
+      setScreenBar({
+        x: screen.center.x,
+        y: screen.center.y - screen.size.y / 2 + 0.22,
+        z: screen.center.z + screen.size.z / 2 + 0.08,
+        width: screen.size.x * 0.86,
+      })
+    }
+    video.addEventListener('loadeddata', onReady, { once: true })
+    video.load()
+    video.play().catch(() => {}) // 静音自动播放；个别环境被策略拦截时等首次点击
+
+    // 诊断：自动暂停时在控制台打出触发来源（区分 代码调用 / 浏览器策略）
+    const origPause = video.pause.bind(video)
+    let codePaused = false
+    video.pause = () => {
+      codePaused = true
+      console.warn(
+        '[screen-video] 代码暂停 @',
+        video.currentTime.toFixed(1),
+        's',
+        new Error().stack?.split('\n').slice(2, 5).join(' <- '),
+      )
+      return origPause()
+    }
+    video.addEventListener('pause', () => {
+      if (codePaused) {
+        codePaused = false
+        return
+      }
+      console.warn('[screen-video] 浏览器触发暂停 @', video.currentTime.toFixed(1), 's')
+    })
+    video.addEventListener('error', () => console.warn('[screen-video] 媒体错误', video.error?.code))
+
+    // 首次任意点击恢复声音（点击大屏的 toggleScreenVideo 也会开声），一次即卸载
+    const unmute = () => {
+      video.muted = false
+      window.removeEventListener('pointerdown', unmute)
+    }
+    window.addEventListener('pointerdown', unmute)
+
+    return () => {
+      disposed = true
+      window.removeEventListener('pointerdown', unmute)
+      video.pause()
+      video.removeAttribute('src')
+      video.load() // 释放解码资源
+      material.map = original.map
+      material.emissiveMap = original.emissiveMap
+      material.emissive.copy(original.emissive)
+      material.color.copy(original.color)
+      material.needsUpdate = true
+      texture?.dispose()
+      setScreenBar(null)
+      screenVideoRef.current = null
+      screenRef.current = null
+      if (typeof window !== 'undefined') window.__screenVideo = null
+    }
+  }, [scene])
+
+  const toggleScreenVideo = () => {
+    const video = screenVideoRef.current
+    if (!video) return
+    if (video.paused) {
+      video.muted = false // 点击手势内开声，规避自动播放策略
+      video.play().catch(() => {})
+    } else {
+      video.pause()
+    }
+  }
+
+  // 走近声音越大、离远越小：满音量距离内线性衰减，静音距离外为 0
+  // （进度条刷新在 ScreenProgressBar 自己的 useFrame 里）
+  useFrame(({ camera }) => {
+    const video = screenVideoRef.current
+    const screen = screenRef.current
+    if (!video || !screen || video.paused) return
+
+    const { maxVolume, fullVolumeDistance, muteDistance } = CONFIG.screenVideo
+    const distance = camera.position.distanceTo(screen.center)
+    const falloff = THREE.MathUtils.clamp(
+      (muteDistance - distance) / (muteDistance - fullVolumeDistance),
+      0,
+      1,
+    )
+    video.volume = falloff * maxVolume
+  })
+
+  // 点击墙上照片/展柜实物/进门大屏：
+  // - 进门大屏 → 播放/暂停视频；
   // - 展柜实物（中文名_basecolor 贴图）→ 弹出 2D 展品说明（onSelectExhibit）；
   // - 墙上照片（材质.NNN 系列贴图）→ 导出原图交给可缩放查看器。
   // R3F 会沿射线对每个命中对象各派发一次事件，只处理最近命中面
@@ -658,14 +951,21 @@ export function GltfModel({
   const handleSceneClick = async (event) => {
     if (event.delta > 6) return // 拖拽旋转视角的抬起不视为点击
 
-    const target = resolveSceneTarget(event)
+    const target = resolveSceneTarget(event, screenRef.current?.mesh)
     if (!target) return
 
     event.stopPropagation()
 
+    if (target.kind === 'screen') {
+      // 刚拖/点过进度条：pointerup 合成出的这次面板点击只当拖拽收尾，不切换播放
+      if (performance.now() - barInteractRef.current < 800) return
+      toggleScreenVideo()
+      return
+    }
+
     if (target.kind === 'exhibit') {
       if (mountedRef.current) {
-        const object = buildExhibitPreview(scene, target.exhibit.mapName)
+        const object = buildExhibitPreview(scene, target.exhibit)
         onSelectExhibit?.({ name: target.exhibit.name, object })
       }
       return
@@ -709,8 +1009,17 @@ export function GltfModel({
     // 其余分发直接忽略——若让它们的空结果清提示，提示会被同一次移动的后续分发误杀
     const nearest = nearestNonGlassHit(event)
     if (nearest && nearest.object !== event.object) return
-    const target = resolveHitTarget(nearest)
-    setHoverHint(target ? { kind: target.kind, x: event.clientX, y: event.clientY } : null)
+    const target = resolveHitTarget(nearest, screenRef.current?.mesh)
+    setHoverHint(
+      target
+        ? {
+            kind: target.kind,
+            x: event.clientX,
+            y: event.clientY,
+            playing: target.kind === 'screen' ? !screenVideoRef.current?.paused : undefined,
+          }
+        : null,
+    )
   }
 
   // 悬停禁用（弹窗冻结/指针锁定）或卸载时清掉光标与浮层
@@ -730,11 +1039,16 @@ export function GltfModel({
   )
 
   return (
-    <primitive
-      object={scene}
-      onClick={handleSceneClick}
-      onPointerMove={handleScenePointerMove}
-      onPointerOut={() => setHoverHint(null)}
-    />
+    <>
+      <primitive
+        object={scene}
+        onClick={handleSceneClick}
+        onPointerMove={handleScenePointerMove}
+        onPointerOut={() => setHoverHint(null)}
+      />
+      {screenBar ? (
+        <ScreenProgressBar bar={screenBar} videoRef={screenVideoRef} barInteractRef={barInteractRef} />
+      ) : null}
+    </>
   )
 }

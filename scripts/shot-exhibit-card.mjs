@@ -59,8 +59,8 @@ if (canvasBox) {
   console.log('已截图 exhibit-3d-b.png（拖拽后）')
 }
 
-// 关闭
-await page.click('.exhibit-modal button[aria-label="关闭"]', { force: true })
+// 关闭（全屏查看器的「返回」按钮）
+await page.click('.exhibit-modal button:has-text("返回")', { force: true })
 await page.waitForTimeout(600)
 const closed = await page.evaluate(() => !document.querySelector('.exhibit-modal'))
 console.log(closed ? '查看器已关闭' : 'FAIL: 查看器未关闭')

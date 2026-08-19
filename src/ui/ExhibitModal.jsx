@@ -1,13 +1,106 @@
-import { useEffect } from 'react'
-import CloseOutlined from '@ant-design/icons/CloseOutlined'
+import { useEffect, useRef, useState } from 'react'
+import {
+  ArrowLeftOutlined,
+  CaretRightOutlined,
+  CodeSandboxOutlined,
+  OrderedListOutlined,
+  PauseOutlined,
+} from '@ant-design/icons'
 import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import { FIGMA_ASSETS } from '../data/assets.js'
 import { getExhibitInfo } from '../data/exhibits.js'
 
-// 点击展柜实物弹出的独立 3D 查看器：
-// - 展品网格从主场景克隆（几何/贴图共享），在弹窗内专属小 Canvas 渲染，
-//   可拖拽旋转/滚轮缩放，缓慢自转；关闭即销毁该 Canvas，平时零开销；
-// - 纯 2D 结构 + 独立上下文，不给主场景加任何对象，不影响漫游帧率。
+function formatTime(seconds) {
+  if (!Number.isFinite(seconds)) return '00:00'
+  const minutes = Math.floor(seconds / 60)
+  const rest = Math.floor(seconds % 60)
+  return `${String(minutes).padStart(2, '0')}:${String(rest).padStart(2, '0')}`
+}
+
+// 解说音频播放条：音频后续上传后在 exhibits.js 里配 audio 字段即可直接播放；
+// 未配置时播放条置灰占位，不影响布局。
+function ExhibitAudioPlayer({ src }) {
+  const audioRef = useRef(null)
+  const railRef = useRef(null)
+  const [playing, setPlaying] = useState(false)
+  const [time, setTime] = useState(0)
+  const [duration, setDuration] = useState(0)
+
+  useEffect(() => {
+    setPlaying(false)
+    setTime(0)
+    setDuration(0)
+  }, [src])
+
+  const toggle = () => {
+    const audio = audioRef.current
+    if (!audio) return
+    if (audio.paused) {
+      audio.play().catch(() => {})
+    } else {
+      audio.pause()
+    }
+  }
+
+  const seek = (event) => {
+    const audio = audioRef.current
+    const rail = railRef.current
+    if (!audio || !rail || !Number.isFinite(audio.duration)) return
+    const rect = rail.getBoundingClientRect()
+    const ratio = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+    audio.currentTime = ratio * audio.duration
+  }
+
+  const percent = duration > 0 ? Math.min(100, (time / duration) * 100) : 0
+
+  return (
+    <div className="flex w-[min(560px,92%)] items-center gap-4 rounded-lg border border-slate-200 bg-white/95 px-5 py-3 shadow-[0_2px_12px_rgba(15,23,42,0.08)]">
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={!src}
+        title={src ? (playing ? '暂停解说' : '播放解说') : '解说音频待上传'}
+        aria-label={src ? (playing ? '暂停解说' : '播放解说') : '解说音频待上传'}
+        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-slate-200 bg-white text-[#3B82F6] transition enabled:hover:border-[#3B82F6]/50 disabled:opacity-45"
+      >
+        {playing ? <PauseOutlined className="text-base" /> : <CaretRightOutlined className="text-xl" />}
+      </button>
+
+      <div className="min-w-0 flex-1">
+        <div className="text-[13px] font-medium text-slate-600">解说音频</div>
+        <div
+          ref={railRef}
+          onClick={seek}
+          className={`mt-1.5 h-1.5 rounded-full bg-slate-200 ${src ? 'cursor-pointer' : ''}`}
+        >
+          <div className="h-full rounded-full bg-[#3B82F6]" style={{ width: `${percent}%` }} />
+        </div>
+      </div>
+
+      <div className="shrink-0 font-mono text-xs text-slate-500">
+        {formatTime(time)} / {src ? formatTime(duration) : '--:--'}
+      </div>
+
+      {src ? (
+        <audio
+          ref={audioRef}
+          src={src}
+          preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => setPlaying(false)}
+          onTimeUpdate={(event) => setTime(event.currentTarget.currentTime)}
+          onLoadedMetadata={(event) => setDuration(event.currentTarget.duration)}
+        />
+      ) : null}
+    </div>
+  )
+}
+
+// 展柜实物全屏查看器（布局参照 model-cover 设计稿，背景 hall-bg.png）：
+// 左 1/4「设备介绍」卡片，右 3/4 展示区（标题 / 可旋转查看 / 3D 模型 / 解说音频条），右上「返回」。
+// 展品网格从主场景克隆，在弹窗专属 Canvas 渲染，可拖拽旋转/滚轮缩放；关闭即销毁，平时零开销。
 export function ExhibitModal({ exhibit, onClose }) {
   useEffect(() => {
     if (!exhibit) return undefined
@@ -25,47 +118,71 @@ export function ExhibitModal({ exhibit, onClose }) {
   const info = getExhibitInfo(exhibit.name)
 
   return (
-    <div
-      className="exhibit-modal fixed inset-0 z-[1000] flex items-center justify-center bg-[rgba(15,23,42,0.22)] p-4"
-      onClick={onClose}
-    >
-      <div
-        className="relative w-[min(520px,calc(100vw-32px))] rounded-2xl border border-slate-200/80 bg-white/95 p-5 shadow-[0_18px_50px_rgba(15,23,42,0.18)]"
-        onClick={(event) => event.stopPropagation()}
+    <div className="exhibit-modal fixed inset-0 z-[1000] overflow-hidden bg-[#e8f1fb]">
+      <img
+        src={FIGMA_ASSETS.hallBackground}
+        alt=""
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+      />
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-[3vw] top-[4.5vh] z-10 flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm text-slate-700 shadow-[0_2px_10px_rgba(15,23,42,0.10)] transition hover:bg-slate-50"
       >
-        <button
-          type="button"
-          aria-label="关闭"
-          className="absolute right-4 top-4 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-slate-100 text-slate-600 transition hover:bg-slate-200"
-          onClick={onClose}
-        >
-          <CloseOutlined />
-        </button>
+        <ArrowLeftOutlined />
+        返回
+      </button>
 
-        <div className="h-[320px] overflow-hidden rounded-xl border border-slate-200 bg-[radial-gradient(circle_at_top,#f8fafc,#e2e8f0)]">
-          <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0.55, 2.3], fov: 40 }}>
-            <ambientLight intensity={0.9} />
-            <directionalLight position={[3, 4, 3]} intensity={1.4} />
-            <directionalLight position={[-3, 2, -2.5]} intensity={0.5} color="#e8eef8" />
-            <primitive object={exhibit.object} />
-            <OrbitControls
-              enablePan={false}
-              autoRotate
-              autoRotateSpeed={1.4}
-              minDistance={1.3}
-              maxDistance={4}
-            />
-          </Canvas>
-        </div>
+      <div className="relative flex h-full w-full items-stretch gap-[2vw] px-[4vw] py-[7vh]">
+        {/* 左：设备介绍卡片 */}
+        <aside className="flex max-h-full w-[clamp(260px,24vw,380px)] shrink-0 flex-col overflow-y-auto rounded-lg border-r-2 border-[#3B82F6] bg-white/95 p-6 shadow-[0_2px_16px_rgba(15,23,42,0.08)]">
+          <div className="flex items-center gap-2 text-slate-800">
+            <OrderedListOutlined className="text-lg text-[#3B82F6]" />
+            <span className="text-lg font-semibold tracking-wide">设备介绍</span>
+          </div>
+          <div className="mt-1 pl-7 text-xs text-slate-500">{info.subtitle}</div>
+          <div className="mt-4 space-y-3 text-sm leading-6 text-slate-600">
+            {info.body
+              .split('\n')
+              .filter(Boolean)
+              .map((paragraph) => (
+                <p key={paragraph}>{paragraph}</p>
+              ))}
+          </div>
+        </aside>
 
-        <div className="mt-4 flex items-center gap-3 pr-10">
-          <span className="h-7 w-1 rounded-full bg-slate-300" aria-hidden="true" />
-          <div className="text-2xl font-semibold text-slate-900">{info.title}</div>
-        </div>
-        <p className="mt-2 text-sm leading-7 text-slate-600">{info.body}</p>
-        <div className="mt-3 border-t border-slate-100 pt-3 text-xs text-slate-400">
-          拖动旋转 · 滚轮缩放 · 按 Esc 或点击空白处关闭
-        </div>
+        {/* 右：展品展示区 */}
+        <section className="flex h-full min-w-0 flex-1 flex-col">
+          <div className="shrink-0">
+            <div className="text-2xl font-bold text-[#2D3748]">{info.title}</div>
+            <div className="mt-1.5 flex items-center gap-1.5 text-sm text-slate-500">
+              <CodeSandboxOutlined className="text-[#3B82F6]" />
+              可旋转查看
+            </div>
+          </div>
+
+          <div className="relative min-h-0 flex-1">
+            <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0.55, 2.3], fov: 40 }}>
+              <ambientLight intensity={0.9} />
+              <directionalLight position={[3, 4, 3]} intensity={1.4} />
+              <directionalLight position={[-3, 2, -2.5]} intensity={0.5} color="#e8eef8" />
+              <primitive object={exhibit.object} />
+              <OrbitControls
+                enablePan={false}
+                autoRotate
+                autoRotateSpeed={1.4}
+                minDistance={1.3}
+                maxDistance={4}
+              />
+            </Canvas>
+          </div>
+
+          <div className="flex shrink-0 justify-center">
+            <ExhibitAudioPlayer src={info.audio} />
+          </div>
+        </section>
       </div>
     </div>
   )

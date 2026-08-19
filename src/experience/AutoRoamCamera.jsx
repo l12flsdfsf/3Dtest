@@ -21,6 +21,9 @@ const _lookMatrix = new THREE.Matrix4()
 const _desiredQuaternion = new THREE.Quaternion()
 const _curvePoints = [new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3(), new THREE.Vector3()]
 const _segmentCurve = new THREE.CatmullRomCurve3(_curvePoints, false, 'centripetal')
+const AUTO_RESUME_DELAY_MS = 2000
+const LOOK_SENSITIVITY = 0.0024
+const MAX_PITCH = Math.PI / 2 - 0.05
 
 function getSegmentDistance(route, index, nextIndex) {
   return Math.max(route[index].position.distanceTo(route[nextIndex].position), 1e-5)
@@ -160,7 +163,7 @@ function findNearestRouteSample(route, position) {
 }
 
 export function AutoRoamCamera({ active = true, worldLayout, playerPosRef, collisionWorldRef }) {
-  const { camera } = useThree()
+  const { camera, gl } = useThree()
   const currentIndexRef = useRef(0)
   const segmentProgressRef = useRef(0)
   const pauseRemainingRef = useRef(0)
@@ -168,6 +171,11 @@ export function AutoRoamCamera({ active = true, worldLayout, playerPosRef, colli
   const travelPositionRef = useRef(new THREE.Vector3())
   const collisionCapsuleRef = useRef(createPlayerCollisionCapsule())
   const hasStartedRef = useRef(false)
+  const activeRef = useRef(active)
+  const rightDragRef = useRef(false)
+  const resumeAtRef = useRef(0)
+  const lastPointerRef = useRef({ x: 0, y: 0 })
+  const lookEulerRef = useRef(new THREE.Euler(0, 0, 0, 'YXZ'))
 
   const route = useMemo(() => buildAutoRoamKeyframes(worldLayout), [worldLayout])
 
@@ -194,20 +202,105 @@ export function AutoRoamCamera({ active = true, worldLayout, playerPosRef, colli
 
       camera.getWorldDirection(_forwardDirection)
       lookTargetRef.current.copy(camera.position).addScaledVector(_forwardDirection, 3.5)
+      lookEulerRef.current.setFromQuaternion(camera.quaternion)
       return
     }
 
     camera.position.copy(travelPositionRef.current)
     _lookMatrix.lookAt(camera.position, lookTargetRef.current, camera.up)
     camera.quaternion.setFromRotationMatrix(_lookMatrix)
+    lookEulerRef.current.setFromQuaternion(camera.quaternion)
     if (playerPosRef?.current) {
       playerPosRef.current.x = camera.position.x
       playerPosRef.current.z = camera.position.z
     }
   }, [active, camera, collisionWorldRef, playerPosRef, route])
 
+  useEffect(() => {
+    activeRef.current = active
+    if (!active) {
+      rightDragRef.current = false
+      resumeAtRef.current = 0
+    }
+  }, [active])
+
+  useEffect(() => {
+    const dom = gl.domElement
+
+    const onContextMenu = (event) => {
+      if (activeRef.current) event.preventDefault()
+    }
+    const onPointerDown = (event) => {
+      if (!activeRef.current || event.button !== 2) return
+
+      rightDragRef.current = true
+      resumeAtRef.current = performance.now() + AUTO_RESUME_DELAY_MS
+      lastPointerRef.current = { x: event.clientX, y: event.clientY }
+      lookEulerRef.current.setFromQuaternion(camera.quaternion)
+      event.preventDefault()
+    }
+    const onPointerMove = (event) => {
+      if (!rightDragRef.current) return
+
+      if ((event.buttons & 2) === 0) {
+        rightDragRef.current = false
+        resumeAtRef.current = performance.now() + AUTO_RESUME_DELAY_MS
+        return
+      }
+
+      const dx = event.clientX - lastPointerRef.current.x
+      const dy = event.clientY - lastPointerRef.current.y
+      lastPointerRef.current = { x: event.clientX, y: event.clientY }
+
+      lookEulerRef.current.y -= dx * LOOK_SENSITIVITY
+      lookEulerRef.current.x -= dy * LOOK_SENSITIVITY
+      lookEulerRef.current.x = THREE.MathUtils.clamp(lookEulerRef.current.x, -MAX_PITCH, MAX_PITCH)
+      camera.quaternion.setFromEuler(lookEulerRef.current)
+      resumeAtRef.current = performance.now() + AUTO_RESUME_DELAY_MS
+    }
+    const scheduleResume = () => {
+      if (!rightDragRef.current) return
+      rightDragRef.current = false
+      resumeAtRef.current = performance.now() + AUTO_RESUME_DELAY_MS
+    }
+
+    dom.addEventListener('contextmenu', onContextMenu)
+    dom.addEventListener('pointerdown', onPointerDown)
+    window.addEventListener('pointermove', onPointerMove)
+    window.addEventListener('pointerup', scheduleResume)
+    window.addEventListener('pointercancel', scheduleResume)
+    window.addEventListener('mouseup', scheduleResume)
+    window.addEventListener('blur', scheduleResume)
+
+    return () => {
+      dom.removeEventListener('contextmenu', onContextMenu)
+      dom.removeEventListener('pointerdown', onPointerDown)
+      window.removeEventListener('pointermove', onPointerMove)
+      window.removeEventListener('pointerup', scheduleResume)
+      window.removeEventListener('pointercancel', scheduleResume)
+      window.removeEventListener('mouseup', scheduleResume)
+      window.removeEventListener('blur', scheduleResume)
+    }
+  }, [camera, gl])
+
   useFrame((_, delta) => {
     if (!active || route.length < 2) return
+
+    const manualLookPaused = resumeAtRef.current > 0 && performance.now() < resumeAtRef.current
+
+    if (manualLookPaused) {
+      window.__autoRoamDebug = {
+        active,
+        pausedForManualLook: true,
+        resumeIn: Math.max(0, Math.ceil(resumeAtRef.current - performance.now())),
+        rightDragging: rightDragRef.current,
+        x: +travelPositionRef.current.x.toFixed(2),
+        z: +travelPositionRef.current.z.toFixed(2),
+      }
+      return
+    }
+
+    resumeAtRef.current = 0
 
     let index = currentIndexRef.current
     let progress = segmentProgressRef.current

@@ -156,21 +156,18 @@ function findMaterialPicture(material) {
   return null
 }
 
-// 命中面带 materialIndex 时优先取对应材质，否则遍历材质找第一张图片贴图
+// 命中网格上的图片贴图：只认命中面（materialIndex）对应的材质。
+// 多材质网格（如展板框架混排照片槽位）若回退遍历其它槽位，会把非照片区域
+// 误判成可点击照片，因此不做整网格兜底。
 export function findPictureTexture(object, face) {
   if (!object?.material) return null
 
   const materials = Array.isArray(object.material) ? object.material : [object.material]
   const hitIndex = face?.materialIndex
-  const ordered =
-    Number.isInteger(hitIndex) && materials[hitIndex] ? [materials[hitIndex], ...materials] : materials
+  const material = Number.isInteger(hitIndex) && materials[hitIndex] ? materials[hitIndex] : materials[0]
 
-  for (const material of ordered) {
-    const picture = findMaterialPicture(material)
-    if (picture?.texture) return picture
-  }
-
-  return null
+  const picture = findMaterialPicture(material)
+  return picture?.texture ? picture : null
 }
 
 // 把贴图位图绘制到（可能缩放过的）canvas 并返回像素数据
