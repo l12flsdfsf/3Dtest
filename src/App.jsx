@@ -11,6 +11,7 @@ import { MapOverlay } from './ui/MapOverlay.jsx'
 import { HelpOverlay } from './ui/RoamOverlay.jsx'
 import { TrophyModal } from './ui/TrophyModal.jsx'
 import { PictureViewer } from './ui/PictureViewer.jsx'
+import { ExhibitModal } from './ui/ExhibitModal.jsx'
 
 const INITIAL_MAP_HALL = {
   id: 'corridor',
@@ -39,6 +40,8 @@ export default function App() {
   const mapOpenRef = useRef(false)
   const bgmRef = useRef(null)
   const pictureUrlRef = useRef(null)
+  const hoverTipRef = useRef(null)
+  const hoverTipTextRef = useRef(null)
   const [mode, setMode] = useState('roam')
   const [mapOpen, setMapOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -47,10 +50,11 @@ export default function App() {
   const [volumeOpen, setVolumeOpen] = useState(false)
   const [trophy, setTrophy] = useState(null)
   const [picture, setPicture] = useState(null)
+  const [exhibit, setExhibit] = useState(null)
   const [mapHall, setMapHall] = useState(INITIAL_MAP_HALL)
   const [worldLayout, setWorldLayout] = useState(null)
 
-  const frozen = mapOpen || helpOpen || Boolean(trophy) || Boolean(picture)
+  const frozen = mapOpen || helpOpen || Boolean(trophy) || Boolean(picture) || Boolean(exhibit)
   mapOpenRef.current = mapOpen
 
   useEffect(() => {
@@ -199,6 +203,43 @@ export default function App() {
     resumePreviousMode()
   }, [resumePreviousMode])
 
+  // 点击展柜实物（书本除外）：暂停漫游弹出独立 3D 查看器（含说明），关闭后回到原漫游模式
+  const openExhibit = useCallback(
+    (payload) => {
+      if (mode === 'roam' || mode === 'auto') resumeModeRef.current = mode
+      controlsRef.current?.unlock?.()
+      setHelpOpen(false)
+      setExhibit(payload)
+    },
+    [mode],
+  )
+
+  const closeExhibit = useCallback(() => {
+    setExhibit(null)
+    resumePreviousMode()
+  }, [resumePreviousMode])
+
+  // 可点击目标（照片/展品）的悬停提示浮层：位置随鼠标实时更新。
+  // mousemove 高频触发，直接改 DOM 不走 state，避免整棵树逐帧重渲染。
+  const handleHoverHint = useCallback((hint) => {
+    const tip = hoverTipRef.current
+    const text = hoverTipTextRef.current
+    if (!tip || !text) return
+
+    if (!hint) {
+      tip.style.opacity = '0'
+      return
+    }
+
+    const label = hint.kind === 'exhibit' ? '点击查看介绍' : '点击查看大图'
+    if (text.textContent !== label) text.textContent = label
+
+    const x = Math.min(hint.x + 14, window.innerWidth - 132)
+    const y = Math.min(hint.y + 18, window.innerHeight - 40)
+    tip.style.transform = `translate(${x}px, ${y}px)`
+    tip.style.opacity = '1'
+  }, [])
+
   const toggleVolumePanel = useCallback(() => {
     setVolumeOpen((open) => !open)
   }, [])
@@ -254,12 +295,15 @@ export default function App() {
       <Experience
         mode={mode}
         onSelectPicture={openPicture}
+        onSelectExhibit={openExhibit}
         onSelectTrophy={openTrophy}
         onReady={(controls) => {
           controlsRef.current = controls
         }}
         onLockChange={setLocked}
         frozen={frozen}
+        hoverEnabled={!frozen}
+        onHoverHint={handleHoverHint}
         playerPosRef={playerPosRef}
         onWorldLayout={handleWorldLayout}
         worldLayout={worldLayout}
@@ -291,6 +335,16 @@ export default function App() {
       <MapOverlay open={mapOpen} currentHall={mapHall} onClose={closeMap} onHallClick={teleportToHall} />
       <TrophyModal trophy={trophy} onClose={() => setTrophy(null)} />
       <PictureViewer key={picture?.url} photo={picture} onClose={closePicture} />
+      <ExhibitModal exhibit={exhibit} onClose={closeExhibit} />
+
+      {/* 悬停提示浮层：位置由 handleHoverHint 直接更新，不触发 React 渲染 */}
+      <div
+        ref={hoverTipRef}
+        className="hover-tip pointer-events-none absolute left-0 top-0 rounded-md bg-slate-900/80 px-2.5 py-1.5 text-xs tracking-wide text-slate-50 shadow-md"
+        style={{ opacity: 0, transition: 'opacity 120ms ease' }}
+      >
+        <span ref={hoverTipTextRef} />
+      </div>
     </div>
   )
 }

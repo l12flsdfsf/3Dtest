@@ -50,10 +50,13 @@ function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usin
 export function Experience({
   mode,
   onSelectPicture,
+  onSelectExhibit,
   onSelectTrophy,
   onReady,
   onLockChange,
   frozen,
+  hoverEnabled = true,
+  onHoverHint,
   playerPosRef,
   onWorldLayout,
   worldLayout,
@@ -101,6 +104,9 @@ export function Experience({
             collisionWorldRef={collisionWorldRef}
             onWorldLayout={onWorldLayout}
             onSelectPicture={onSelectPicture}
+            onSelectExhibit={onSelectExhibit}
+            hoverEnabled={hoverEnabled}
+            onHoverHint={onHoverHint}
           />
         ) : (
           <Hall />
@@ -126,13 +132,13 @@ export function Experience({
         worldLayout={worldLayout}
       />
 
-      {isAutoRoam && !frozen ? (
-        <AutoRoamCamera
-          worldLayout={worldLayout}
-          playerPosRef={playerPosRef}
-          collisionWorldRef={collisionWorldRef}
-        />
-      ) : null}
+      {/* 常驻挂载：active 切换启停，避免卸载丢失漫游进度（每次重开都回出生点） */}
+      <AutoRoamCamera
+        active={isAutoRoam && !frozen}
+        worldLayout={worldLayout}
+        playerPosRef={playerPosRef}
+        collisionWorldRef={collisionWorldRef}
+      />
 
       {isInspect && !frozen ? (
         <OrbitControls

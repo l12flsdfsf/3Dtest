@@ -1,4 +1,4 @@
-npm# 贵州 3D 展厅（React + react-three-fiber）
+# 甘肃省广播电视局三维数字信息化云平台（React + react-three-fiber）
 
 一个可运行的最小 3D 展厅骨架：**程序化搭建场景 → 漫游 → 热点 → 点击交互**。
 不依赖任何外部模型即可跑起来；之后把 Figma 设计稿导出为 GLB / 贴图，再替换进去。

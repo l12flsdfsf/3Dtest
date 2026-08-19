@@ -28,7 +28,7 @@ function MusicNoteOutlined() {
   )
 }
 
-// 顶栏保持应用的浅色胶囊风格；图标用矢量图标，激活态沿用全局按钮的蓝色 (#2563eb)
+// 顶栏保持应用的浅色胶囊风格；图标用矢量图标，不做激活态高亮，仅保留悬停反馈
 // 大屏按钮为 64px；菜单会整体等比缩放，保持图标与胶囊的比例。
 // 音量滑杆面板 88px 宽，居中挂在音乐按钮下方时两侧各外扩 12px，视觉对齐。
 function NavButton({ label, icon, text, active = false, onClick }) {
@@ -42,9 +42,7 @@ function NavButton({ label, icon, text, active = false, onClick }) {
       className={[
         'topbar__button',
         text ? 'topbar__button--text' : '',
-        active
-          ? 'bg-[#2563eb] text-white shadow-[0_16px_28px_rgba(37,99,235,0.28)]'
-          : 'text-slate-500 hover:scale-105 hover:bg-[#2563eb]/10 hover:text-[#2563eb]',
+        'text-slate-500 hover:scale-105 hover:bg-[#2563eb]/10 hover:text-[#2563eb]',
       ].join(' ')}
     >
       {icon}

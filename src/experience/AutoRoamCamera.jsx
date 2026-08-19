@@ -133,7 +133,33 @@ function resolveFrameTarget(route, index, nextIndex, progress, position, fallbac
   return _desiredTarget.copy(fallbackTarget)
 }
 
-export function AutoRoamCamera({ worldLayout, playerPosRef, collisionWorldRef }) {
+// 在路线上找离当前位置最近的采样点（段索引 + 段内进度），用于中断后就近续游
+const _nearestSample = new THREE.Vector3()
+function findNearestRouteSample(route, position) {
+  let bestIndex = 0
+  let bestProgress = 0
+  let bestDistance = Infinity
+
+  for (let index = 0; index < route.length; index += 1) {
+    const nextIndex = index + 1 < route.length ? index + 1 : 0
+    const steps = 8
+
+    for (let step = 0; step <= steps; step += 1) {
+      const progress = step / steps
+      sampleSegmentPosition(route, index, nextIndex, progress, _nearestSample)
+      const distance = _nearestSample.distanceToSquared(position)
+      if (distance < bestDistance) {
+        bestDistance = distance
+        bestIndex = index
+        bestProgress = progress
+      }
+    }
+  }
+
+  return { index: bestIndex, progress: bestProgress }
+}
+
+export function AutoRoamCamera({ active = true, worldLayout, playerPosRef, collisionWorldRef }) {
   const { camera } = useThree()
   const currentIndexRef = useRef(0)
   const segmentProgressRef = useRef(0)
@@ -141,32 +167,47 @@ export function AutoRoamCamera({ worldLayout, playerPosRef, collisionWorldRef })
   const lookTargetRef = useRef(new THREE.Vector3())
   const travelPositionRef = useRef(new THREE.Vector3())
   const collisionCapsuleRef = useRef(createPlayerCollisionCapsule())
+  const hasStartedRef = useRef(false)
 
   const route = useMemo(() => buildAutoRoamKeyframes(worldLayout), [worldLayout])
 
+  // 首次激活：从相机当前位置就近接上路线（出生点即 route[0]，行为与旧版一致）。
+  // 再次激活：恢复自动漫游自己的行程位置与视线——自主漫游期间相机去了哪里不影响这里。
   useEffect(() => {
-    if (!route.length) return
+    if (!active || route.length < 2) return
 
-    currentIndexRef.current = 0
-    segmentProgressRef.current = 0
-    pauseRemainingRef.current = route[0].hold ?? 0
     camera.up.set(0, 1, 0)
-    travelPositionRef.current.copy(route[0].position)
-    resolveExternalCollisionPosition(
-      travelPositionRef.current,
-      collisionWorldRef,
-      CONFIG.player.eyeHeight,
-      collisionCapsuleRef.current,
-    )
+
+    if (!hasStartedRef.current) {
+      hasStartedRef.current = true
+      const { index, progress } = findNearestRouteSample(route, camera.position)
+      currentIndexRef.current = index
+      segmentProgressRef.current = progress
+      pauseRemainingRef.current = progress < 0.02 ? route[index].hold ?? 0 : 0
+      travelPositionRef.current.copy(camera.position)
+      resolveExternalCollisionPosition(
+        travelPositionRef.current,
+        collisionWorldRef,
+        CONFIG.player.eyeHeight,
+        collisionCapsuleRef.current,
+      )
+
+      camera.getWorldDirection(_forwardDirection)
+      lookTargetRef.current.copy(camera.position).addScaledVector(_forwardDirection, 3.5)
+      return
+    }
+
     camera.position.copy(travelPositionRef.current)
-    resolveFrameTarget(route, 0, route.length > 1 ? 1 : 0, 0, camera.position, route[0].target)
-    lookTargetRef.current.copy(_desiredTarget)
     _lookMatrix.lookAt(camera.position, lookTargetRef.current, camera.up)
     camera.quaternion.setFromRotationMatrix(_lookMatrix)
-  }, [camera, collisionWorldRef, route])
+    if (playerPosRef?.current) {
+      playerPosRef.current.x = camera.position.x
+      playerPosRef.current.z = camera.position.z
+    }
+  }, [active, camera, collisionWorldRef, playerPosRef, route])
 
   useFrame((_, delta) => {
-    if (route.length < 2) return
+    if (!active || route.length < 2) return
 
     let index = currentIndexRef.current
     let progress = segmentProgressRef.current
@@ -226,6 +267,15 @@ export function AutoRoamCamera({ worldLayout, playerPosRef, collisionWorldRef })
     currentIndexRef.current = index
     segmentProgressRef.current = progress
     pauseRemainingRef.current = pauseRemaining
+    // 调试钩子：自动化测试读取自动漫游内部状态（生产无副作用）
+    window.__autoRoamDebug = {
+      active,
+      index,
+      progress: +progress.toFixed(3),
+      pause: +pauseRemaining.toFixed(2),
+      x: +travelPositionRef.current.x.toFixed(2),
+      z: +travelPositionRef.current.z.toFixed(2),
+    }
 
     const approachTurnWeight = getApproachTurnWeight(route, index, nextIndex, progress)
 

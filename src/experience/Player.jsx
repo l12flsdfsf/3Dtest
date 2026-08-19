@@ -113,6 +113,8 @@ export function Player({
   const spawnWorldLayoutRef = useRef(undefined)
   const hasInteractedSinceSpawnRef = useRef(false)
   const spawnClearedRef = useRef(false)
+  // 自主漫游自己的位姿存档：切去自动漫游后相机被移动，切回时恢复到这里
+  const manualPoseRef = useRef(null)
 
   const applySpawnPose = useCallback(
     (layout) => {
@@ -154,6 +156,14 @@ export function Player({
     [onLockChange],
   )
 
+  const saveManualPose = useCallback(() => {
+    if (!manualPoseRef.current) {
+      manualPoseRef.current = { position: new THREE.Vector3(), quaternion: new THREE.Quaternion() }
+    }
+    manualPoseRef.current.position.copy(camera.position)
+    manualPoseRef.current.quaternion.copy(camera.quaternion)
+  }, [camera])
+
   const teleportTo = useCallback((position, lookAt) => {
     camera.up.set(0, 1, 0)
     camera.position.set(position.x, position.y, position.z)
@@ -177,7 +187,8 @@ export function Player({
 
     spawnPositionRef.current = camera.position.clone()
     hasInteractedSinceSpawnRef.current = true
-  }, [camera, collisionWorldRef, playerPosRef])
+    saveManualPose()
+  }, [camera, collisionWorldRef, playerPosRef, saveManualPose])
 
   useEffect(() => {
     onReady?.({
@@ -279,18 +290,32 @@ export function Player({
   useEffect(() => {
     activeRef.current = active
     if (!active) {
+      // 停用瞬间相机还在自主漫游位置上，存档；自动漫游之后怎么移动相机都不影响这份记录
+      if (didInitRef.current) saveManualPose()
       setRoaming(false)
       return
     }
 
-    if (!didInitRef.current) {
+    if (manualPoseRef.current && hasInteractedSinceSpawnRef.current) {
+      // 从自动漫游（或观察模式）切回：恢复自主漫游上次离开的位置与视角
+      const pose = manualPoseRef.current
+      camera.up.set(0, 1, 0)
+      camera.position.copy(pose.position)
+      camera.quaternion.copy(pose.quaternion)
+      euler.current.setFromQuaternion(camera.quaternion, 'YXZ')
+      spawnPositionRef.current = camera.position.clone()
+      if (playerPosRef) {
+        playerPosRef.current.x = camera.position.x
+        playerPosRef.current.z = camera.position.z
+      }
+    } else if (!didInitRef.current) {
       applySpawnPose(worldLayout)
       didInitRef.current = true
     } else if (spawnWorldLayoutRef.current !== worldLayout && !hasInteractedSinceSpawnRef.current) {
       applySpawnPose(worldLayout)
     }
     setRoaming(true)
-  }, [active, applySpawnPose, setRoaming, worldLayout])
+  }, [active, applySpawnPose, camera, playerPosRef, saveManualPose, setRoaming, worldLayout])
 
   useFrame((_, delta) => {
     // 始终同步相机（玩家）世界坐标到 ref，供展厅地图在打开时取一次快照定位「你在此」。
@@ -301,6 +326,8 @@ export function Player({
     // 调试钩子：自动化测试读取玩家坐标/碰撞状态（生产无副作用）
     window.__camera = camera
     window.__worldLayout = worldLayout
+    window.__teleport = teleportTo
+    window.__THREE = THREE
     if (worldLayout?.sceneRoot) window.__scene = worldLayout.sceneRoot
     if (collisionWorldRef?.current) {
       window.__collisionWorld = collisionWorldRef.current

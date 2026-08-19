@@ -1,22 +1,15 @@
 import * as THREE from 'three'
 
 // 从外部 gltf 模型的网格材质中识别并导出可点击查看的「图片」。
-// 两类：
-// 1. 墙上照片：独立的高清竖版贴图（材质.001~材质.095），走 emissiveMap，整张即所见；
-// 2. 展板/屏幕：拼贴板/海报板/屏幕的整张贴图。拼贴板上印有多张图，
-//    导出时按点击位置向四周找白色框线/留白，裁出被点击的那一张。
-//    厅内墙面/地板的平铺纹理与展柜/展台纯色材质不属于图片。
+// 只开放墙上单张老照片：独立的高清贴图（材质 / 材质.001~材质.NNN 系列），
+// 走 emissiveMap，整张即所见。
+// 厅内的拼贴展板/背景墙（板/屏/海报命名，如 大厅白板、技术展厅海报背板）、
+// 竖版证书贴图（奖状/奖牌）、墙面/地板的平铺纹理与展柜/展台纯色材质
+// 都不属于「图片」，不参与点击与悬停提示。
 
-const MIN_PHOTO_WIDTH = 512
-const MIN_PHOTO_HEIGHT = 1024
 const MIN_PHOTO_NAME_SIZE = 256
-const MIN_BOARD_SIZE = 512
 // 本模型的墙上照片统一命名为 材质 / 材质.001~材质.095（竖版横版均有），按命名识别最可靠
 const PHOTO_MATERIAL_RE = /^材质(?:\.\d+)?$/
-// 材质名含这些字的视为展板/屏幕（本模型命名规律：大厅白板、电视厅海报版、2屏…）
-const BOARD_NAME_HINTS = ['板', '屏', '海报']
-// 「地板」也含「板」字，但它是平铺地面材质，需排除
-const BOARD_NAME_EXCLUDES = ['地板']
 
 // 拼贴裁剪参数（在缩到最大 1024px 的位图上扫描）
 const SCAN_MAX_SIZE = 1024
@@ -126,13 +119,14 @@ function isCompressedTexture(texture) {
   return texture?.isCompressedTexture === true || Array.isArray(texture?.image)
 }
 
-// 竖版、高分辨率且未设置平铺的贴图视为照片
+// 竖版、高分辨率且未设置平铺的贴图视为照片（当前未启用：证书/奖状类贴图
+// 不参与点击；如需放开未命名的竖版照片贴图，在 findMaterialPicture 里恢复调用）
 export function isPictureTexture(texture) {
   if (!texture?.isTexture) return false
 
   const size = getTextureImageSize(texture)
   if (!size) return false
-  if (size.width < MIN_PHOTO_WIDTH || size.height < MIN_PHOTO_HEIGHT) return false
+  if (size.width < 512 || size.height < 1024) return false
   if (size.height <= size.width) return false
 
   const { repeat } = texture
@@ -141,14 +135,9 @@ export function isPictureTexture(texture) {
   return true
 }
 
-function isBoardMaterialName(name) {
-  return (
-    BOARD_NAME_HINTS.some((hint) => name.includes(hint)) &&
-    !BOARD_NAME_EXCLUDES.some((exclude) => name.includes(exclude))
-  )
-}
-
-// 取材质上承载图片的贴图：照片/展板走 emissiveMap（自发光贴图），兼容 map
+// 取材质上承载图片的贴图：照片走 emissiveMap（自发光贴图），兼容 map。
+// 只认 材质 / 材质.NNN 命名的照片系列；拼贴展板/背景墙、屏幕、竖版证书
+// 一律不纳入（判定见文件头注释），后续要放开某类时在此按名单补充。
 function findMaterialPicture(material) {
   if (!material) return null
 
@@ -157,21 +146,9 @@ function findMaterialPicture(material) {
   const size = map ? getTextureImageSize(map) : null
   const minSide = size ? Math.min(size.width, size.height) : 0
 
-  // 1. 材质.NNN 系列照片：横竖版都有，整张贴图即一张照片
+  // 材质.NNN 系列照片：横竖版都有，整张贴图即一张照片
   if (PHOTO_MATERIAL_RE.test(name) && minSide >= MIN_PHOTO_NAME_SIZE) {
     return { texture: map, name, board: false }
-  }
-  // 2. 未命名材质的竖版高清贴图视为照片
-  if (isPictureTexture(material.emissiveMap)) {
-    return { texture: material.emissiveMap, name, board: false }
-  }
-  if (isPictureTexture(material.map)) {
-    return { texture: material.map, name, board: false }
-  }
-  // 3. 展板/屏幕
-  if (isBoardMaterialName(name) && minSide >= MIN_BOARD_SIZE) {
-    // 拼贴板按点击位置裁出单张；屏幕本身就是整幅画面，不裁剪
-    return { texture: map, name, board: !name.includes('屏') }
   }
   // 注：厅名材质（关怀厅/大厅…）的墙面纹理虽烘焙了照片，但其 UV 与渲染
   // 采样不一致（射线交点处的贴图像素是纯色），无法可靠定位到单张，故不纳入。

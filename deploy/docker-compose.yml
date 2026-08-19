@@ -1,7 +1,7 @@
 services:
   web:
     image: nginx:1.27-alpine
-    container_name: guizhou-3d-hall
+    container_name: gansu-radiotelevision-3d-cloud-platform
     restart: unless-stopped
     network_mode: bridge
     ports:

@@ -6,6 +6,7 @@ import { Octree } from 'three/examples/jsm/math/Octree.js'
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { CONFIG } from '../data/config.js'
 import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
+import { CLICKABLE_EXHIBITS, EXHIBIT_EXCLUDES } from '../data/exhibits.js'
 import { findPictureTexture, textureToPhoto } from './pictureTexture.js'
 
 function listMaterialNames(material) {
@@ -444,7 +445,115 @@ function getSceneLayout(scene) {
   return layout
 }
 
-export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPicture }) {
+// 命中面材质（多材质网格按命中面的 materialIndex 取）
+function getHitMaterial(hit) {
+  const object = hit?.object
+  if (!object?.material) return null
+  const materials = Array.isArray(object.material) ? object.material : [object.material]
+  const index = hit.face?.materialIndex
+  return Number.isInteger(index) && materials[index] ? materials[index] : materials[0]
+}
+
+// 展柜玻璃允许点击穿透：玻璃命中不作为最近命中参与判定
+function isGlassHit(hit) {
+  const material = getHitMaterial(hit)
+  if (!material) return false
+  const name = typeof material.name === 'string' ? material.name : ''
+  if (name.includes('玻璃')) return true
+  return material.transparent === true && (material.opacity ?? 1) <= 0.6
+}
+
+// 展柜实物展品识别：材质 map 命名为「中文名_basecolor」（如 手摇式录音机_basecolor），
+// 仅 CLICKABLE_EXHIBITS 白名单内的可点击（分批接入），书本等排除项不参与
+function findHitExhibit(hit) {
+  const material = getHitMaterial(hit)
+  const mapName = typeof material?.map?.name === 'string' ? material.map.name : ''
+  const match = mapName.match(/^(.+)_basecolor$/i)
+  if (!match) return null
+
+  const name = match[1].trim()
+  if (!/[一-鿿]/.test(name) || EXHIBIT_EXCLUDES.has(name)) return null
+  if (!CLICKABLE_EXHIBITS.has(name)) return null
+  return { name, mapName }
+}
+
+// 展品 3D 预览：把同名贴图的网格克隆到独立组（几何/贴图与主场景共享，不额外占显存），
+// 按世界包围盒居中并归一化尺寸，供弹窗内独立 Canvas 旋转查看。
+const _previewBox = new THREE.Box3()
+const _previewCenter = new THREE.Vector3()
+const _previewSize = new THREE.Vector3()
+const _decomposePosition = new THREE.Vector3()
+const _decomposeQuaternion = new THREE.Quaternion()
+const _decomposeScale = new THREE.Vector3()
+
+function buildExhibitPreview(scene, mapName) {
+  const group = new THREE.Group()
+
+  scene.traverse((object) => {
+    if (!object.isMesh || object === scene) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    if (!materials.some((material) => material?.map?.name === mapName)) return
+
+    const clone = object.clone()
+    object.updateWorldMatrix(true, false)
+    object.matrixWorld.decompose(_decomposePosition, _decomposeQuaternion, _decomposeScale)
+    clone.position.copy(_decomposePosition)
+    clone.quaternion.copy(_decomposeQuaternion)
+    clone.scale.copy(_decomposeScale)
+    group.add(clone)
+  })
+
+  if (!group.children.length) return null
+
+  _previewBox.setFromObject(group)
+  if (_previewBox.isEmpty()) return null
+  _previewBox.getCenter(_previewCenter)
+  _previewBox.getSize(_previewSize)
+
+  const maxSpan = Math.max(_previewSize.x, _previewSize.y, _previewSize.z) || 1
+  const scale = 1.5 / maxSpan
+  const wrapper = new THREE.Group()
+  wrapper.scale.setScalar(scale)
+  wrapper.position.copy(_previewCenter).multiplyScalar(-scale)
+  wrapper.add(group)
+  return wrapper
+}
+
+// 从 R3F 事件的全部命中里取「最近且非玻璃」的命中（展柜玻璃允许点击/悬停穿透）
+function nearestNonGlassHit(event) {
+  return (event.intersections ?? []).filter((hit) => !isGlassHit(hit))[0] ?? null
+}
+
+// 解析命中面上的可交互目标：展柜实物 → { kind: 'exhibit' }；照片/展板 → { kind: 'picture' }
+function resolveHitTarget(nearest) {
+  if (!nearest) return null
+
+  // 展柜实物展品优先：命名贴图判定是确定性的，且展品贴图不应再走图片流程
+  const exhibit = findHitExhibit(nearest)
+  if (exhibit) return { kind: 'exhibit', exhibit }
+
+  const picture = findPictureTexture(nearest.object, nearest.face)
+  if (picture?.texture) return { kind: 'picture', picture, uv: nearest.uv }
+  return null
+}
+
+// 从 R3F 事件的全部命中里取「最近且非玻璃」的命中并解析可交互目标。
+// 点击与悬停提示共用，保证出现提示的目标一定可点。
+function resolveSceneTarget(event) {
+  const nearest = nearestNonGlassHit(event)
+  if (!nearest || nearest.object !== event.object) return null
+  return resolveHitTarget(nearest)
+}
+
+export function GltfModel({
+  url,
+  collisionWorldRef,
+  onWorldLayout,
+  onSelectPicture,
+  onSelectExhibit,
+  hoverEnabled = true,
+  onHoverHint,
+}) {
   const gl = useThree((state) => state.gl)
   // KTX2（GPU 压缩纹理）支持：basis 转码器放 public/basis/，按当前渲染器能力选择转码目标。
   // 注意：桌面 ANGLE 上 BC7(bptc)/模拟 ETC2/ASTC 在部分驱动上会把 sRGB 压缩贴图
@@ -540,24 +649,32 @@ export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPictu
     }
   }, [collisionWorldRef, scene])
 
-  // 点击墙上照片/展板/屏幕：从命中网格的材质里取出图片贴图，导出原图交给查看器。
-  // R3F 会沿射线对每个命中对象各派发一次事件，只处理最近命中面，
-  // 使墙体和展板空白区域等可见遮挡物能够阻止其后的图片被选中。
-  const handlePictureClick = async (event) => {
+  // 点击墙上照片/展柜实物：
+  // - 展柜实物（中文名_basecolor 贴图）→ 弹出 2D 展品说明（onSelectExhibit）；
+  // - 墙上照片（材质.NNN 系列贴图）→ 导出原图交给可缩放查看器。
+  // R3F 会沿射线对每个命中对象各派发一次事件，只处理最近命中面
+  // （玻璃命中被过滤、可穿透），使墙体和展板空白区域等
+  // 可见遮挡物能够阻止其后的目标被选中。
+  const handleSceneClick = async (event) => {
     if (event.delta > 6) return // 拖拽旋转视角的抬起不视为点击
 
-    const nearest = event.intersections?.[0]
-    if (!nearest || nearest.object !== event.object) return
+    const target = resolveSceneTarget(event)
+    if (!target) return
 
     event.stopPropagation()
 
-    try {
-      const picture = findPictureTexture(nearest.object, nearest.face)
-      if (!picture?.texture) return
+    if (target.kind === 'exhibit') {
+      if (mountedRef.current) {
+        const object = buildExhibitPreview(scene, target.exhibit.mapName)
+        onSelectExhibit?.({ name: target.exhibit.name, object })
+      }
+      return
+    }
 
-      const photo = await textureToPhoto(picture.texture, picture.name, {
-        board: picture.board,
-        uv: nearest.uv,
+    try {
+      const photo = await textureToPhoto(target.picture.texture, target.picture.name, {
+        board: target.picture.board,
+        uv: target.uv,
       })
 
       if (photo && mountedRef.current) onSelectPicture?.(photo)
@@ -566,5 +683,58 @@ export function GltfModel({ url, collisionWorldRef, onWorldLayout, onSelectPictu
     }
   }
 
-  return <primitive object={scene} onClick={handlePictureClick} />
+  // 悬停提示：与点击共用 resolveSceneTarget，保证「提示可点 = 真的能点」。
+  // 光标变化时切换 body 光标（与奖杯悬停一致），坐标实时上报给 DOM 浮层。
+  const hoverKindRef = useRef(null)
+
+  const setHoverHint = (hint) => {
+    const kind = hint ? hint.kind : null
+    if (kind) {
+      onHoverHint?.(hint)
+    } else if (hoverKindRef.current !== null) {
+      onHoverHint?.(null)
+    }
+    if (kind !== hoverKindRef.current) {
+      hoverKindRef.current = kind
+      document.body.style.cursor = kind ? 'pointer' : 'auto'
+    }
+  }
+
+  const handleScenePointerMove = (event) => {
+    if (!hoverEnabled) {
+      setHoverHint(null)
+      return
+    }
+    // R3F 对同一射线上每个命中各派发一次 move：只有「最近命中」的那次负责判定，
+    // 其余分发直接忽略——若让它们的空结果清提示，提示会被同一次移动的后续分发误杀
+    const nearest = nearestNonGlassHit(event)
+    if (nearest && nearest.object !== event.object) return
+    const target = resolveHitTarget(nearest)
+    setHoverHint(target ? { kind: target.kind, x: event.clientX, y: event.clientY } : null)
+  }
+
+  // 悬停禁用（弹窗冻结/指针锁定）或卸载时清掉光标与浮层
+  useEffect(() => {
+    if (hoverEnabled) return undefined
+    hoverKindRef.current = null
+    document.body.style.cursor = 'auto'
+    onHoverHint?.(null)
+    return undefined
+  }, [hoverEnabled, onHoverHint])
+
+  useEffect(
+    () => () => {
+      document.body.style.cursor = 'auto'
+    },
+    [],
+  )
+
+  return (
+    <primitive
+      object={scene}
+      onClick={handleSceneClick}
+      onPointerMove={handleScenePointerMove}
+      onPointerOut={() => setHoverHint(null)}
+    />
+  )
 }

@@ -1,7 +1,7 @@
 const FIGMA_ASSET_BASE = '/figma-assets'
 
 const rawExport = (path) =>
-  `${FIGMA_ASSET_BASE}/${encodeURI(`\u8d35\u5dde\u5c55\u5385/${path}`).replaceAll('%2F', '/')}`
+  `${FIGMA_ASSET_BASE}/${encodeURI(`\u7518\u8083\u5c55\u5385/${path}`).replaceAll('%2F', '/')}`
 
 export const FIGMA_ASSETS = {
   guideMap: `${FIGMA_ASSET_BASE}/guide-map.png`,
@@ -24,8 +24,8 @@ export const RAW_FIGMA_EXPORTS = {
   cPanel1: rawExport('C-1.png'),
   cPanel2: rawExport('C-2.png'),
   cPanel3: rawExport('C-3.png'),
-  volumePanel: rawExport('音量下拉框.png'),
-  volumeRail: rawExport('Scroll rail-1.png'),
-  volumeFill: rawExport('音量条.png'),
-  volumeThumb: rawExport('Ellipse 1.png'),
+  volumePanel: '/ui/volume-panel.png',
+  volumeRail: '/ui/volume-rail.png',
+  volumeFill: '/ui/volume-fill.png',
+  volumeThumb: '/ui/volume-thumb.png',
 }
