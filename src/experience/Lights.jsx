@@ -9,6 +9,7 @@ function AimedSpotLight({
   shadowFar = 12,
   shadowBias = -0.00008,
   shadowNormalBias = 0.02,
+  shadowRadius = 3,
   ...props
 }) {
   const lightRef = useRef(null)
@@ -31,6 +32,7 @@ function AimedSpotLight({
         shadow-camera-far={shadowFar}
         shadow-bias={shadowBias}
         shadow-normalBias={shadowNormalBias}
+        shadow-radius={shadowRadius}
         {...props}
       />
     </>
@@ -50,15 +52,15 @@ export function Lights() {
         key: `front-${x}`,
         position: [x, ceilingY, roomCenterZ],
         target: [x, 1.1, roomCenterZ],
-        intensity: 5.8,
-        distance: 9.2,
+        intensity: 4.6,
+        distance: 7.4,
       },
       {
         key: `back-${x}`,
         position: [x, ceilingY, -roomCenterZ],
         target: [x, 1.1, -roomCenterZ],
-        intensity: 5.8,
-        distance: 9.2,
+        intensity: 4.6,
+        distance: 7.4,
       },
     ])
   }, [])
@@ -70,49 +72,51 @@ export function Lights() {
 
   return (
     <>
-      <hemisphereLight args={['#f7fafc', '#c8d0d8', 0.82]} />
-      <ambientLight intensity={0.42} color="#f7f9fc" />
+      <hemisphereLight args={['#f7fafc', '#c8d0d8', 0.4]} />
+      <ambientLight intensity={0.14} color="#f7f9fc" />
 
       {/* 仅保留弱化的整体补光，不再让它产生室内假阴影。 */}
-      <directionalLight position={[6, 10, 4]} intensity={0.28} color="#eef3f9" />
+      <directionalLight position={[6, 10, 4]} intensity={0.14} color="#eef3f9" />
 
       <AimedSpotLight
         position={[0, ceilingY, 0]}
         target={[0, 0.95, 0]}
-        angle={0.82}
-        penumbra={0.62}
-        intensity={9.1}
-        distance={15.5}
+        angle={0.68}
+        penumbra={0.38}
+        intensity={8.4}
+        distance={12.4}
         decay={2}
         color="#fbfdff"
         castShadow
         shadowMapSize={[1024, 1024]}
         shadowFar={16}
         shadowNormalBias={0.028}
+        shadowRadius={4}
       />
 
       <AimedSpotLight
         position={[sandTableCenterX, ceilingY - 0.12, sandTableCenterZ]}
         target={[sandTableCenterX, 1.05, sandTableCenterZ]}
-        angle={0.5}
-        penumbra={0.58}
-        intensity={5.9}
-        distance={9.4}
+        angle={0.44}
+        penumbra={0.36}
+        intensity={5.2}
+        distance={7.8}
         decay={2}
         color="#f5f8fb"
         castShadow
         shadowMapSize={[768, 768]}
         shadowFar={10}
         shadowNormalBias={0.024}
+        shadowRadius={3}
       />
 
       <AimedSpotLight
         position={[-sideLightX, ceilingY, 0]}
         target={[-sideLightX + 0.35, 1.55, 0]}
-        angle={0.56}
-        penumbra={0.55}
-        intensity={4.1}
-        distance={8.2}
+        angle={0.46}
+        penumbra={0.34}
+        intensity={3.1}
+        distance={6.8}
         decay={2}
         color="#eef4fa"
       />
@@ -120,10 +124,10 @@ export function Lights() {
       <AimedSpotLight
         position={[sideLightX, ceilingY, 0]}
         target={[sideLightX - 0.35, 1.55, 0]}
-        angle={0.56}
-        penumbra={0.55}
-        intensity={4.1}
-        distance={8.2}
+        angle={0.46}
+        penumbra={0.34}
+        intensity={3.1}
+        distance={6.8}
         decay={2}
         color="#eef4fa"
       />
@@ -133,17 +137,17 @@ export function Lights() {
           key={light.key}
           position={light.position}
           target={light.target}
-          angle={0.58}
-          penumbra={0.52}
-          intensity={light.intensity * 0.94}
+          angle={0.48}
+          penumbra={0.34}
+          intensity={light.intensity}
           distance={light.distance}
           decay={2}
           color="#f7fafc"
         />
       ))}
 
-      <pointLight position={[0, 2.8, 0]} intensity={0.9} distance={8.2} decay={2} color="#f1f5fa" />
-      <pointLight position={[0, 5.9, 6.3]} intensity={1.8} distance={10.8} decay={2} color="#f5f8fb" />
+      <pointLight position={[0, 2.8, 0]} intensity={0.62} distance={6.6} decay={2} color="#f1f5fa" />
+      <pointLight position={[0, 5.9, 6.3]} intensity={1.25} distance={8.6} decay={2} color="#f5f8fb" />
     </>
   )
 }

@@ -138,6 +138,50 @@ export function ExhibitModal({ exhibit, onClose }) {
         className="pointer-events-none absolute inset-0 h-full w-full object-cover"
       />
 
+      {/* 3D 展示层铺满整屏（与背景图同范围）：放大/旋转不再被右侧小区域裁切 */}
+      <div className="absolute inset-0">
+        <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0.55, 3.4], fov: 40 }}>
+          <ambientLight intensity={0.9} />
+          <directionalLight position={[3, 4, 3]} intensity={1.4} />
+          <directionalLight position={[-3, 2, -2.5]} intensity={0.5} color="#e8eef8" />
+          {info.highPolyModel ? (
+            // 高精度展品：点击后才加载该 GLB（组件挂载即请求，主场景不含它），
+            // 加载期间/失败时由组件内部用低模克隆占位
+            <HighPolyExhibit
+              url={info.highPolyModel}
+              fallbackObject={exhibit.object}
+              onStatus={setHighPolyStatus}
+            />
+          ) : (
+            <primitive object={exhibit.object} />
+          )}
+          <OrbitControls
+            enablePan={false}
+            autoRotate
+            autoRotateSpeed={1.4}
+            minDistance={2}
+            maxDistance={6}
+          />
+        </Canvas>
+
+        {loadingHighPoly ? (
+          <div className="absolute inset-0 flex items-center justify-center bg-[rgba(232,241,251,0.45)]">
+            <div className="w-64 rounded-lg border border-slate-200 bg-white/95 px-5 py-4 shadow-[0_2px_12px_rgba(15,23,42,0.10)]">
+              <div className="text-sm text-slate-700">正在加载高精度模型…</div>
+              <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                <div
+                  className={`h-full rounded-full bg-[#3B82F6] ${progress === null ? 'w-1/3 animate-pulse' : 'transition-[width] duration-150'}`}
+                  style={progress === null ? undefined : { width: `${progress}%` }}
+                />
+              </div>
+              <div className="mt-1.5 text-right font-mono text-xs text-slate-400">
+                {progress !== null ? `${progress}%` : '…'}
+              </div>
+            </div>
+          </div>
+        ) : null}
+      </div>
+
       <button
         type="button"
         onClick={onClose}
@@ -147,9 +191,10 @@ export function ExhibitModal({ exhibit, onClose }) {
         返回
       </button>
 
-      <div className="relative flex h-full w-full items-stretch gap-[2vw] px-[4vw] py-[7vh]">
+      {/* UI 悬浮层：卡片/标题/音频条浮在 3D 之上；容器与中间空区穿透，画布照常接收拖拽/缩放 */}
+      <div className="pointer-events-none relative flex h-full w-full items-stretch gap-[2vw] px-[4vw] py-[7vh]">
         {/* 左：设备介绍卡片 */}
-        <aside className="flex max-h-full w-[clamp(260px,24vw,380px)] shrink-0 flex-col overflow-y-auto rounded-lg border-r-2 border-[#3B82F6] bg-white/95 p-6 shadow-[0_2px_16px_rgba(15,23,42,0.08)]">
+        <aside className="pointer-events-auto flex max-h-full w-[clamp(260px,24vw,380px)] shrink-0 flex-col overflow-y-auto rounded-lg border-r-2 border-[#3B82F6] bg-white/95 p-6 shadow-[0_2px_16px_rgba(15,23,42,0.08)]">
           <div className="flex items-center gap-2 text-slate-800">
             <OrderedListOutlined className="text-lg text-[#3B82F6]" />
             <span className="text-lg font-semibold tracking-wide">设备介绍</span>
@@ -165,7 +210,7 @@ export function ExhibitModal({ exhibit, onClose }) {
           </div>
         </aside>
 
-        {/* 右：展品展示区 */}
+        {/* 右：标题与音频条（中间留空透出 3D） */}
         <section className="flex h-full min-w-0 flex-1 flex-col">
           <div className="shrink-0">
             <div className="text-2xl font-bold text-[#2D3748]">{info.title}</div>
@@ -175,50 +220,9 @@ export function ExhibitModal({ exhibit, onClose }) {
             </div>
           </div>
 
-          <div className="relative min-h-0 flex-1">
-            <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0.55, 2.3], fov: 40 }}>
-              <ambientLight intensity={0.9} />
-              <directionalLight position={[3, 4, 3]} intensity={1.4} />
-              <directionalLight position={[-3, 2, -2.5]} intensity={0.5} color="#e8eef8" />
-              {info.highPolyModel ? (
-                // 高精度展品：点击后才加载该 GLB（组件挂载即请求，主场景不含它），
-                // 加载期间/失败时由组件内部用低模克隆占位
-                <HighPolyExhibit
-                  url={info.highPolyModel}
-                  fallbackObject={exhibit.object}
-                  onStatus={setHighPolyStatus}
-                />
-              ) : (
-                <primitive object={exhibit.object} />
-              )}
-              <OrbitControls
-                enablePan={false}
-                autoRotate
-                autoRotateSpeed={1.4}
-                minDistance={1.3}
-                maxDistance={4}
-              />
-            </Canvas>
+          <div className="min-h-0 flex-1" />
 
-            {loadingHighPoly ? (
-              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(232,241,251,0.45)]">
-                <div className="w-64 rounded-lg border border-slate-200 bg-white/95 px-5 py-4 shadow-[0_2px_12px_rgba(15,23,42,0.10)]">
-                  <div className="text-sm text-slate-700">正在加载高精度模型…</div>
-                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
-                    <div
-                      className={`h-full rounded-full bg-[#3B82F6] ${progress === null ? 'w-1/3 animate-pulse' : 'transition-[width] duration-150'}`}
-                      style={progress === null ? undefined : { width: `${progress}%` }}
-                    />
-                  </div>
-                  <div className="mt-1.5 text-right font-mono text-xs text-slate-400">
-                    {progress !== null ? `${progress}%` : '…'}
-                  </div>
-                </div>
-              </div>
-            ) : null}
-          </div>
-
-          <div className="flex shrink-0 justify-center">
+          <div className="pointer-events-auto flex shrink-0 justify-center">
             <ExhibitAudioPlayer src={info.audio} />
           </div>
         </section>

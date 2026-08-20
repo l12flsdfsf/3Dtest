@@ -13,7 +13,13 @@
 import { NodeIO } from '@gltf-transform/core'
 import {
   EXTMeshoptCompression,
+  KHRMaterialsClearcoat,
+  KHRMaterialsEmissiveStrength,
+  KHRMaterialsIOR,
+  KHRMaterialsSheen,
   KHRMaterialsSpecular,
+  KHRMaterialsTransmission,
+  KHRMaterialsVolume,
   KHRMeshQuantization,
 } from '@gltf-transform/extensions'
 import { listTextureSlots, meshopt } from '@gltf-transform/functions'
@@ -56,8 +62,18 @@ async function main() {
   await fs.mkdir(WORK, { recursive: true })
 
   const io = new NodeIO().registerDependencies({ 'meshopt.encoder': MeshoptEncoder })
-  // 源模型带 KHR_materials_specular：读入前注册才能在写出时保留
-  io.registerExtensions([EXTMeshoptCompression, KHRMeshQuantization, KHRMaterialsSpecular])
+  // 源模型的材质扩展（specular/volume 等）：读入前注册才能在写出时保留
+  io.registerExtensions([
+    EXTMeshoptCompression,
+    KHRMeshQuantization,
+    KHRMaterialsClearcoat,
+    KHRMaterialsEmissiveStrength,
+    KHRMaterialsIOR,
+    KHRMaterialsSheen,
+    KHRMaterialsSpecular,
+    KHRMaterialsTransmission,
+    KHRMaterialsVolume,
+  ])
   const doc = await io.read(INPUT)
   const textures = doc.getRoot().listTextures()
   console.log(`纹理数：${textures.length}`)
@@ -66,7 +82,13 @@ async function main() {
     const texture = textures[i]
     const bytes = Buffer.from(texture.getImage())
     const size = readPngSize(bytes)
-    if (!size) throw new Error(`纹理 #${i} 不是 PNG，无法解析尺寸`)
+    const slots = listTextureSlots(texture)
+
+    if (!size) {
+      // 非 PNG（如 tripo 导出器自带的小 JPEG）：本就紧凑，原样保留
+      console.log(`  #${i} ${slots.join('/') || '?'} 非 PNG（${texture.getMimeType()}），原样保留`)
+      continue
+    }
 
     const scale = Math.min(1, MAX_EDGE / Math.max(size.width, size.height))
     const targetW = Math.round(size.width * scale)
@@ -76,7 +98,6 @@ async function main() {
     await fs.writeFile(rawPath, bytes)
 
     // 颜色贴图出 JPEG，数值贴图（法线/金属度粗糙度）保持 PNG
-    const slots = listTextureSlots(texture)
     const isColor = slots.includes('baseColorTexture') || slots.includes('emissiveTexture')
     const outExt = isColor ? 'jpg' : 'png'
     const outPath = path.join(WORK, `out_${i}.${outExt}`)

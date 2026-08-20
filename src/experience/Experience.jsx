@@ -1,7 +1,9 @@
 import { Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Canvas, useThree } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
+import * as THREE from 'three'
 import { Lights } from './Lights.jsx'
+import { SceneEnvironment } from './SceneEnvironment.jsx'
 import { Hall } from './Hall.jsx'
 import { Player } from './Player.jsx'
 import { GltfModel } from './GltfModel.jsx'
@@ -47,6 +49,33 @@ function InitialSpawnCamera({ worldLayout, collisionWorldRef, playerPosRef, usin
   return null
 }
 
+function StaticShadowMaps({ ready }) {
+  const { gl } = useThree()
+
+  useEffect(() => {
+    if (!ready) return undefined
+
+    let nextFrame = 0
+    const freezeTimer = window.requestAnimationFrame(() => {
+      nextFrame = window.requestAnimationFrame(() => {
+        gl.shadowMap.autoUpdate = false
+      })
+    })
+
+    gl.shadowMap.autoUpdate = true
+    gl.shadowMap.needsUpdate = true
+
+    return () => {
+      window.cancelAnimationFrame(freezeTimer)
+      window.cancelAnimationFrame(nextFrame)
+      gl.shadowMap.autoUpdate = true
+      gl.shadowMap.needsUpdate = true
+    }
+  }, [gl, ready])
+
+  return null
+}
+
 export function Experience({
   mode,
   onSelectPicture,
@@ -77,9 +106,13 @@ export function Experience({
 
   return (
     <Canvas
-      shadows="basic"
+      shadows="percentage"
       dpr={[1, 1.5]}
       gl={{ antialias: true, powerPreference: 'high-performance' }}
+      onCreated={({ gl }) => {
+        gl.toneMapping = THREE.AgXToneMapping
+        gl.toneMappingExposure = 1.08
+      }}
       style={{ opacity: spawnReady ? 1 : 0 }}
       camera={{
         position: [
@@ -95,6 +128,7 @@ export function Experience({
       <color attach="background" args={['#dfe8fb']} />
       <fog attach="fog" args={['#e8eefc', 18, 58]} />
 
+      <SceneEnvironment />
       <Lights />
 
       <Suspense fallback={null}>
@@ -122,6 +156,7 @@ export function Experience({
         usingExternalModel={usingExternalModel}
         onSynced={setSpawnReady}
       />
+      <StaticShadowMaps ready={spawnReady} />
 
       <Player
         active={isManualRoam && !frozen}

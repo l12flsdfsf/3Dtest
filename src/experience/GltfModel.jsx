@@ -298,7 +298,7 @@ function fixShowcaseGlassMaterials(scene) {
     if (!object.isMesh) return
     const materials = Array.isArray(object.material) ? object.material : [object.material]
     for (const material of materials) {
-      if (!material || material.name !== '玻璃') continue
+      if (!material || !['玻璃', '电视厅玻璃'].includes(material.name)) continue
       material.transparent = true
       material.depthWrite = false
       material.metalness = 0
@@ -332,6 +332,57 @@ function suppressEnvReflectionOnEmissivePanels(scene) {
 }
 
 // 单个网格的三角形总数（多材质分组时索引为准）
+function suppressTrophyEnvReflection(scene) {
+  let count = 0
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+
+    for (const material of materials) {
+      if (!material) continue
+      const label = `${object.name} ${material.name} ${material.map?.name ?? ''}`
+      if (!/JiangBei|奖杯|trophy/i.test(label) || material.envMapIntensity === 0) continue
+
+      material.envMapIntensity = 0
+      if (material.transparent) {
+        material.roughness = Math.max(material.roughness ?? 0, 0.55)
+      }
+      material.needsUpdate = true
+      count += 1
+    }
+  })
+
+  if (count) console.info(`[lighting] disabled environment reflections on ${count} trophy materials`)
+}
+
+function isShadowSurface(material) {
+  if (!material || material.visible === false) return false
+  if (material.transparent && (material.opacity ?? 1) < 0.96) return false
+  if (material.emissiveMap || material.emissive?.getMaxComponent?.() > 0.25) return false
+  return true
+}
+
+function enableSceneShadows(scene) {
+  let casters = 0
+  let receivers = 0
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    const receivesShadow = materials.some(isShadowSurface)
+    const castsShadow = receivesShadow && !object.userData?.noShadow
+
+    object.castShadow = castsShadow
+    object.receiveShadow = receivesShadow
+
+    if (castsShadow) casters += 1
+    if (receivesShadow) receivers += 1
+  })
+
+  console.info(`[lighting] GLTF shadow surfaces: ${casters} casters, ${receivers} receivers`)
+}
+
 function countMeshTriangles(mesh) {
   const geometries = Array.isArray(mesh.geometry) ? mesh.geometry : [mesh.geometry]
   return geometries.reduce((total, geometry) => {
@@ -845,6 +896,8 @@ export function GltfModel({
     removeOccludingBlankPanels(scene) // 必须先于布局/碰撞体构建
     fixShowcaseGlassMaterials(scene)
     suppressEnvReflectionOnEmissivePanels(scene)
+    suppressTrophyEnvReflection(scene)
+    enableSceneShadows(scene)
     if (typeof window !== 'undefined') window.__gltfScene = scene // 调试用：自动化测试检查场景网格
     return getSceneLayout(scene)
   }, [scene])

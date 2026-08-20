@@ -46,7 +46,12 @@ export const EXHIBIT_INFO = {
   电影录音电源整流器: '电影录音设备的电源整流器。',
   电影放映银幕: '电影放映银幕。',
   电影洗印计算尺: '电影洗印计算尺，洗印工艺参数的计算工具。',
-  奖杯1: '荣誉奖杯，行业荣誉实物展品。',
+  // 奖杯1：查看器内展示高精度扫描模型（点击时才按需加载，不随场景加载）
+  奖杯1: {
+    subtitle: '荣誉展区实物',
+    body: '荣誉奖杯，行业荣誉实物展品。',
+    highPolyModel: '/models/trophy-1-high.glb',
+  },
   // 奖杯3：查看器内展示高精度扫描模型（点击时才按需加载，不随场景加载）
   奖杯3: {
     subtitle: '荣誉展区实物',
@@ -61,8 +66,16 @@ export const EXHIBIT_INFO = {
   },
   奖杯7: '荣誉奖杯，行业荣誉实物展品。',
   奖杯9: '荣誉奖杯，行业荣誉实物展品。',
-  奖杯10: '荣誉奖杯，行业荣誉实物展品。',
-  奖杯12: '荣誉奖杯，行业荣誉实物展品。',
+  奖杯10: {
+    subtitle: '荣誉展区实物',
+    body: '荣誉奖杯，行业荣誉实物展品。',
+    highPolyModel: '/models/trophy-10-high.glb',
+  },
+  奖杯12: {
+    subtitle: '荣誉展区实物',
+    body: '荣誉奖杯，行业荣誉实物展品。',
+    highPolyModel: '/models/trophy-12-high.glb',
+  },
 }
 
 // 无命名贴图的实物（mesh_rep 照片扫描件、留声机组、唱片等）按 mesh 名接入。
@@ -141,11 +154,13 @@ export const MESH_EXHIBIT_INFO = {
     body: '照片扫描建模的早期设备实物。',
     meshNames: ['mesh_rep_0_ori_repair_quad011'],
   },
+  // 奖杯墙右下角的照片扫描奖杯：高模即同源扫描的高清版（jiangbei15.glb）
   'scan-device-honor-1': {
-    title: '老式设备',
+    title: '奖杯 15',
     subtitle: '荣誉展区实物',
-    body: '照片扫描建模的早期设备实物。',
+    body: '荣誉奖杯，行业荣誉实物展品。',
     meshNames: ['mesh_rep_0_ori_repair_quad012'],
+    highPolyModel: '/models/trophy-15-high.glb',
   },
   'scan-device-honor-2': {
     title: '老式设备',

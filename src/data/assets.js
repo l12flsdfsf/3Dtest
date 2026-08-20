@@ -13,7 +13,7 @@ export const FIGMA_ASSETS = {
 }
 
 export const RAW_FIGMA_EXPORTS = {
-  background: rawExport('bg.png'),
+  background: `${FIGMA_ASSET_BASE}/loading-background.png`,
   topNavigation: rawExport('Top Navigation.png'),
   mapScene: rawExport('01 \u5730\u56fe/1920x1080.png'),
   helpScene: rawExport('02 \u64cd\u4f5c\u5e2e\u52a9/ 1920x1080.png'),
