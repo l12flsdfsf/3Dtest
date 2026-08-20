@@ -8,6 +8,7 @@ import { CONFIG } from '../data/config.js'
 import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
 import { CLICKABLE_EXHIBITS, EXHIBIT_EXCLUDES, MESH_NAME_TO_EXHIBIT, getExhibitInfo } from '../data/exhibits.js'
 import { findPictureTexture, textureToPhoto } from './pictureTexture.js'
+import { TechHallCornerShadows } from './TechHallCornerShadows.jsx'
 
 function listMaterialNames(material) {
   if (!material) return []
@@ -1260,6 +1261,7 @@ export function GltfModel({
           setHoverHint(null)
         }}
       />
+      <TechHallCornerShadows scene={scene} worldLayout={worldLayout} />
       {hoverPicture ? (
         <PictureHoverHint
           point={hoverPicture.point}
