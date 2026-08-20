@@ -111,7 +111,7 @@ export function Experience({
       gl={{ antialias: true, powerPreference: 'high-performance' }}
       onCreated={({ gl }) => {
         gl.toneMapping = THREE.AgXToneMapping
-        gl.toneMappingExposure = 1.08
+        gl.toneMappingExposure = 1
       }}
       style={{ opacity: spawnReady ? 1 : 0 }}
       camera={{
@@ -126,7 +126,7 @@ export function Experience({
       }}
     >
       <color attach="background" args={['#dfe8fb']} />
-      <fog attach="fog" args={['#e8eefc', 18, 58]} />
+      <fog attach="fog" args={['#e8eefc', 46, 112]} />
 
       <SceneEnvironment />
       <Lights />
