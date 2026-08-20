@@ -289,11 +289,9 @@ function removeOccludingBlankPanels(scene) {
   return doomed.length
 }
 
-// 展柜玻璃材质修复：源模型的「玻璃」材质是 metalness=1 + roughness=0（Unity 原版靠
-// 天空盒反射呈现透亮质感）。PBR 里金属没有漫反射，颜色只来自环境反射；本项目
-// 场景没有环境贴图，金属玻璃渲染成纯黑，21% 透明度叠加后像蒙黑纱。
-// 改成非金属清玻璃：低粗糙度保留灯光高光与环境反射（能看出玻璃存在），
-// 中性灰 + 18% 透明度保证柜内展品清晰可见。
+// The source material relies on a Unity reflection probe that is not present
+// in this renderer. Keep the glass locally bright without reintroducing a
+// scene-wide environment map or a view-dependent white reflection.
 function fixShowcaseGlassMaterials(scene) {
   let fixed = 0
   scene.traverse((object) => {
@@ -301,15 +299,18 @@ function fixShowcaseGlassMaterials(scene) {
     const materials = Array.isArray(object.material) ? object.material : [object.material]
     for (const material of materials) {
       if (!material || material.name !== '玻璃') continue
-      material.metalness = 0.35
-      material.roughness = 0.08
-      material.color.setScalar(0.82)
-      material.opacity = 0.25
+      material.transparent = true
+      material.depthWrite = false
+      material.metalness = 0
+      material.roughness = 0.85
+      material.envMapIntensity = 0
+      material.color.setScalar(0.9)
+      material.opacity = 0.12
       material.needsUpdate = true
       fixed += 1
     }
   })
-  if (fixed) console.info(`[gltf] 已修复 ${fixed} 处展柜玻璃材质（金属黑玻璃 → 清玻璃）`)
+  if (fixed) console.info(`[gltf] 已修复 ${fixed} 处展柜玻璃材质（低反射清玻璃）`)
   return fixed
 }
 

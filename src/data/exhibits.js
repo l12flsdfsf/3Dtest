@@ -47,8 +47,18 @@ export const EXHIBIT_INFO = {
   电影放映银幕: '电影放映银幕。',
   电影洗印计算尺: '电影洗印计算尺，洗印工艺参数的计算工具。',
   奖杯1: '荣誉奖杯，行业荣誉实物展品。',
-  奖杯3: '荣誉奖杯，行业荣誉实物展品。',
-  奖杯4: '荣誉奖杯，行业荣誉实物展品。',
+  // 奖杯3：查看器内展示高精度扫描模型（点击时才按需加载，不随场景加载）
+  奖杯3: {
+    subtitle: '荣誉展区实物',
+    body: '荣誉奖杯，行业荣誉实物展品。',
+    highPolyModel: '/models/trophy-3-high.glb',
+  },
+  // 奖杯4：查看器内展示高精度扫描模型（点击时才按需加载，不随场景加载）
+  奖杯4: {
+    subtitle: '荣誉展区实物',
+    body: '荣誉奖杯，行业荣誉实物展品。',
+    highPolyModel: '/models/trophy-4-high.glb',
+  },
   奖杯7: '荣誉奖杯，行业荣誉实物展品。',
   奖杯9: '荣誉奖杯，行业荣誉实物展品。',
   奖杯10: '荣誉奖杯，行业荣誉实物展品。',
@@ -219,6 +229,7 @@ export function getExhibitInfo(name) {
       body: entry.body ?? '',
       audio: entry.audio ?? null,
       meshNames: entry.meshNames ?? null,
+      highPolyModel: entry.highPolyModel ?? null,
     }
   }
   return { title: name || '实物展品', subtitle: '展柜实物展品', body: '展柜实物展品。', audio: null }

@@ -10,6 +10,7 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { FIGMA_ASSETS } from '../data/assets.js'
 import { getExhibitInfo } from '../data/exhibits.js'
+import { HighPolyExhibit } from '../experience/HighPolyExhibit.jsx'
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return '00:00'
@@ -102,6 +103,12 @@ function ExhibitAudioPlayer({ src }) {
 // 左 1/4「设备介绍」卡片，右 3/4 展示区（标题 / 可旋转查看 / 3D 模型 / 解说音频条），右上「返回」。
 // 展品网格从主场景克隆，在弹窗专属 Canvas 渲染，可拖拽旋转/滚轮缩放；关闭即销毁，平时零开销。
 export function ExhibitModal({ exhibit, onClose }) {
+  // 高模加载状态：{ ready, failed, loaded, total }，切展品时归零
+  const [highPolyStatus, setHighPolyStatus] = useState(null)
+  useEffect(() => {
+    setHighPolyStatus(null)
+  }, [exhibit])
+
   useEffect(() => {
     if (!exhibit) return undefined
 
@@ -116,6 +123,11 @@ export function ExhibitModal({ exhibit, onClose }) {
   if (!exhibit?.object) return null
 
   const info = getExhibitInfo(exhibit.name)
+  const loadingHighPoly = Boolean(info.highPolyModel) && !highPolyStatus?.ready
+  const progress =
+    highPolyStatus && highPolyStatus.total > 0
+      ? Math.min(100, Math.round((highPolyStatus.loaded / highPolyStatus.total) * 100))
+      : null
 
   return (
     <div className="exhibit-modal fixed inset-0 z-[1000] overflow-hidden bg-[#e8f1fb]">
@@ -168,7 +180,17 @@ export function ExhibitModal({ exhibit, onClose }) {
               <ambientLight intensity={0.9} />
               <directionalLight position={[3, 4, 3]} intensity={1.4} />
               <directionalLight position={[-3, 2, -2.5]} intensity={0.5} color="#e8eef8" />
-              <primitive object={exhibit.object} />
+              {info.highPolyModel ? (
+                // 高精度展品：点击后才加载该 GLB（组件挂载即请求，主场景不含它），
+                // 加载期间/失败时由组件内部用低模克隆占位
+                <HighPolyExhibit
+                  url={info.highPolyModel}
+                  fallbackObject={exhibit.object}
+                  onStatus={setHighPolyStatus}
+                />
+              ) : (
+                <primitive object={exhibit.object} />
+              )}
               <OrbitControls
                 enablePan={false}
                 autoRotate
@@ -177,6 +199,23 @@ export function ExhibitModal({ exhibit, onClose }) {
                 maxDistance={4}
               />
             </Canvas>
+
+            {loadingHighPoly ? (
+              <div className="absolute inset-0 flex items-center justify-center bg-[rgba(232,241,251,0.45)]">
+                <div className="w-64 rounded-lg border border-slate-200 bg-white/95 px-5 py-4 shadow-[0_2px_12px_rgba(15,23,42,0.10)]">
+                  <div className="text-sm text-slate-700">正在加载高精度模型…</div>
+                  <div className="mt-2.5 h-1.5 overflow-hidden rounded-full bg-slate-200">
+                    <div
+                      className={`h-full rounded-full bg-[#3B82F6] ${progress === null ? 'w-1/3 animate-pulse' : 'transition-[width] duration-150'}`}
+                      style={progress === null ? undefined : { width: `${progress}%` }}
+                    />
+                  </div>
+                  <div className="mt-1.5 text-right font-mono text-xs text-slate-400">
+                    {progress !== null ? `${progress}%` : '…'}
+                  </div>
+                </div>
+              </div>
+            ) : null}
           </div>
 
           <div className="flex shrink-0 justify-center">
