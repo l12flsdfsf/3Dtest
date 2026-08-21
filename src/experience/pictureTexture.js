@@ -138,7 +138,7 @@ export function isPictureTexture(texture) {
 // 取材质上承载图片的贴图：照片走 emissiveMap（自发光贴图），兼容 map。
 // 只认 材质 / 材质.NNN 命名的照片系列；拼贴展板/背景墙、屏幕、竖版证书
 // 一律不纳入（判定见文件头注释），后续要放开某类时在此按名单补充。
-function findMaterialPicture(material) {
+export function findMaterialPicture(material) {
   if (!material) return null
 
   const name = typeof material.name === 'string' ? material.name : ''

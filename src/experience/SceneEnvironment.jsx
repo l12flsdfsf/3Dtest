@@ -13,9 +13,9 @@ export function SceneEnvironment() {
     const target = pmrem.fromScene(new RoomEnvironment(), 0.04)
 
     scene.environment = target.texture
-    // Keep a restrained IBL fill so metallic trims retain depth without
-    // adding a scene-wide white haze to every reflective surface.
-    scene.environmentIntensity = 0.18
+    // Keep metallic detail while preventing the white room probe from
+    // flattening the imported materials into a grey veil.
+    scene.environmentIntensity = 0.30
 
     return () => {
       scene.environment = previousEnvironment

@@ -125,8 +125,8 @@ export function Experience({
         far: 80,
       }}
     >
-      <color attach="background" args={['#dfe8fb']} />
-      <fog attach="fog" args={['#e8eefc', 46, 112]} />
+      <color attach="background" args={['#eff3f8']} />
+      <fog attach="fog" args={['#f2f5f8', 68, 150]} />
 
       <SceneEnvironment />
       <Lights />

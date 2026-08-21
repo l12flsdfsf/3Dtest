@@ -7,8 +7,9 @@ import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js'
 import { CONFIG } from '../data/config.js'
 import { HALLS, getHallCanonicalCenter } from '../data/halls.js'
 import { CLICKABLE_EXHIBITS, EXHIBIT_EXCLUDES, MESH_NAME_TO_EXHIBIT, getExhibitInfo } from '../data/exhibits.js'
-import { findPictureTexture, textureToPhoto } from './pictureTexture.js'
+import { findMaterialPicture, findPictureTexture, textureToPhoto } from './pictureTexture.js'
 import { TechHallCornerShadows } from './TechHallCornerShadows.jsx'
+import { CareHallCornerShadows } from './CareHallCornerShadows.jsx'
 
 function listMaterialNames(material) {
   if (!material) return []
@@ -329,6 +330,49 @@ function suppressEnvReflectionOnEmissivePanels(scene) {
     }
   })
   if (count) console.info(`[gltf] 已关闭 ${count} 处自发光面板的环境反射`)
+  return count
+}
+
+const UNLIT_PICTURE_MATERIAL = 'unlitPicturePanel'
+
+function makePicturePanelsUnlit(scene) {
+  const replacements = new Map()
+  let count = 0
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    let changed = false
+    const nextMaterials = materials.map((material) => {
+      const picture = findMaterialPicture(material)
+      if (!picture?.texture || material.userData?.[UNLIT_PICTURE_MATERIAL]) return material
+
+      let replacement = replacements.get(material)
+      if (!replacement) {
+        replacement = new THREE.MeshBasicMaterial({
+          name: material.name,
+          map: picture.texture,
+          color: 0xffffff,
+          side: material.side,
+          fog: false,
+          // toneMapped: true:海报仍不受灯光影响(unlit),但和全厅同走 AgX 曲线。
+          // 直出(toneMapped:false)会让海报成为全场唯一豁免色调映射的面,
+          // 饱和/高光爆掉(高亮像素占比 2.4%→5.4%),把其余表面衬得发灰发蒙。
+          toneMapped: true,
+        })
+        replacement.userData[UNLIT_PICTURE_MATERIAL] = true
+        replacements.set(material, replacement)
+      }
+
+      changed = true
+      count += 1
+      return replacement
+    })
+
+    if (changed) object.material = Array.isArray(object.material) ? nextMaterials : nextMaterials[0]
+  })
+
+  if (count) console.info(`[gltf] rendered ${count} picture panels with unlit materials`)
   return count
 }
 
@@ -896,6 +940,7 @@ export function GltfModel({
   const worldLayout = useMemo(() => {
     removeOccludingBlankPanels(scene) // 必须先于布局/碰撞体构建
     fixShowcaseGlassMaterials(scene)
+    makePicturePanelsUnlit(scene)
     suppressEnvReflectionOnEmissivePanels(scene)
     suppressTrophyEnvReflection(scene)
     enableSceneShadows(scene)
@@ -978,23 +1023,19 @@ export function GltfModel({
     scene.traverse((object) => {
       if (screenRef.current || !object.isMesh) return
       const materials = Array.isArray(object.material) ? object.material : [object.material]
-      const material = materials.find((item) => item?.name === CONFIG.screenVideo.material)
-      if (!material) return
+      const materialIndex = materials.findIndex((item) => item?.name === CONFIG.screenVideo.material)
+      if (materialIndex < 0) return
+      const material = materials[materialIndex]
       const box = new THREE.Box3().setFromObject(object)
       const center = box.getCenter(new THREE.Vector3())
       const size = box.getSize(new THREE.Vector3())
-      screenRef.current = { mesh: object, material, center, size }
+      screenRef.current = { mesh: object, material, materialIndex, center, size }
     })
     const screen = screenRef.current
     if (!screen) return undefined
 
     const { material } = screen
-    const original = {
-      map: material.map,
-      emissiveMap: material.emissiveMap,
-      emissive: material.emissive.clone(),
-      color: material.color.clone(),
-    }
+    const originalMeshMaterial = screen.mesh.material
 
     const video = document.createElement('video')
     video.src = CONFIG.screenVideo.url
@@ -1004,10 +1045,16 @@ export function GltfModel({
     // 浏览器禁止带声自动播放：先静音自动播放，首次任意点击恢复声音（与背景音乐同套路）
     video.muted = true
     video.autoplay = true
+    video.setAttribute('aria-hidden', 'true')
+    video.tabIndex = -1
+    video.style.cssText =
+      'position:fixed;left:-2px;top:-2px;width:1px;height:1px;opacity:0;pointer-events:none'
+    document.body.append(video)
     screenVideoRef.current = video
     if (typeof window !== 'undefined') window.__screenVideo = video // 调试/自动化测试
 
     let texture = null
+    let videoMaterial = null
     const onReady = () => {
       if (disposed) return
       // 视频上屏：map/emissiveMap 一起换成视频贴图，屏幕自发光不依赖场景灯光；
@@ -1036,13 +1083,23 @@ export function GltfModel({
       }
       texture.repeat.set(repeatX, repeatY)
       texture.offset.set(offsetX, offsetY)
-      material.map = texture
-      material.emissiveMap = texture
-      material.emissive.set(0xffffff)
-      material.color.set(0xffffff)
-      // 自发光面板不吃环境反射：IBL 的镜面反射会在视频上罩一层白纱
-      material.envMapIntensity = 0
-      material.needsUpdate = true
+      // Do not inherit the source PBR panel material. Its transparency,
+      // metalness, reflections, fog, and tone mapping wash the video out.
+      videoMaterial = new THREE.MeshBasicMaterial({
+        name: material.name,
+        map: texture,
+        color: 0xffffff,
+        side: material.side,
+        fog: false,
+        toneMapped: false,
+      })
+      if (Array.isArray(originalMeshMaterial)) {
+        const screenMaterials = [...originalMeshMaterial]
+        screenMaterials[screen.materialIndex] = videoMaterial
+        screen.mesh.material = screenMaterials
+      } else {
+        screen.mesh.material = videoMaterial
+      }
 
       // 进度条几何参数（JSX 组件按世界坐标摆放）。
       // 距屏面 8cm：太贴近（1-2cm）时点击射线在热区与面板间的浮点误差内
@@ -1093,12 +1150,10 @@ export function GltfModel({
       video.pause()
       video.removeAttribute('src')
       video.load() // 释放解码资源
-      material.map = original.map
-      material.emissiveMap = original.emissiveMap
-      material.emissive.copy(original.emissive)
-      material.color.copy(original.color)
-      material.needsUpdate = true
+      video.remove()
+      screen.mesh.material = originalMeshMaterial
       texture?.dispose()
+      videoMaterial?.dispose()
       setScreenBar(null)
       screenVideoRef.current = null
       screenRef.current = null
@@ -1262,6 +1317,7 @@ export function GltfModel({
         }}
       />
       <TechHallCornerShadows scene={scene} worldLayout={worldLayout} />
+      <CareHallCornerShadows scene={scene} worldLayout={worldLayout} />
       {hoverPicture ? (
         <PictureHoverHint
           point={hoverPicture.point}
