@@ -28,16 +28,16 @@ const FLOOR_SHADOW_STRENGTH = 0.2
 const BOTTOM_EDGE_HEIGHT = 0.34
 const BOTTOM_EDGE_STRENGTH = 0.2
 const TOP_EDGE_HEIGHT = 0.32
-// Top wall-edge shading is handled by split overlays so lit ceiling zones stay clean.
+// 墙顶竖条保持连续；天花侧压暗见 CeilingEdgeShadowMaterial（写进天花材质，无切分）。
 const TOP_EDGE_STRENGTH = 0
 const EDGE_OVERLAY_OFFSET = 0.012
 const EDGE_OVERLAY_MIN_LENGTH = 0.8
 const FLOOR_STRIP_WIDTH = 0.42
-const CEILING_STRIP_WIDTH = 0.38
-const CEILING_EDGE_INSET = 0.045
-const CEILING_LIGHT_CLEARANCE = 0.22
+// 天花压暗（shader 版）：墙顶线两侧渐变半径/强度，与旧浮空贴片 0.38/0.085 对齐
+const CEILING_EDGE_RADIUS = 0.38
+const CEILING_EDGE_STRENGTH = 0.085
+const CEILING_MAX_LINES = 24
 const EDGE_PLANE_TOLERANCE = 0.18
-const CEILING_LIGHT_MATERIAL_PATTERN = /\u767d\u706f|\u706f|\u5927\u5385\u9876\u90e8\u84dd/
 
 const _a = new THREE.Vector3()
 const _b = new THREE.Vector3()
@@ -272,122 +272,13 @@ function matchesTallPlane(plane, tallPlanes) {
   )
 }
 
-// The ceiling overlays are physical translucent planes; keep them out of real light panels.
-function collectCeilingLightBlockers(scene, hallBox) {
-  const blockers = []
-  const pad = 0.25
-  const minCeilingY = hallBox.max.y - 0.12
+// 天花平板（如网格085_1：y5.34~5.74 的大块水平板）：高层 + 薄 + 大跨度。
+function isCeilingSlabMesh(object) {
+  const box = new THREE.Box3().setFromObject(object)
+  if (box.isEmpty()) return false
 
-  scene.traverse((object) => {
-    if (!object.isMesh) return
-    const materials = Array.isArray(object.material) ? object.material : [object.material]
-    if (!materials.some((material) => CEILING_LIGHT_MATERIAL_PATTERN.test(material?.name ?? ''))) return
-
-    const box = new THREE.Box3().setFromObject(object)
-    if (box.isEmpty() || box.max.y < minCeilingY) return
-    if (
-      box.max.x < hallBox.min.x - pad ||
-      box.min.x > hallBox.max.x + pad ||
-      box.max.z < hallBox.min.z - pad ||
-      box.min.z > hallBox.max.z + pad
-    ) {
-      return
-    }
-
-    blockers.push({
-      minX: box.min.x,
-      maxX: box.max.x,
-      minZ: box.min.z,
-      maxZ: box.max.z,
-    })
-  })
-
-  return blockers
-}
-
-function mergeIntervals(intervals) {
-  const sorted = intervals
-    .filter(([start, end]) => end - start > 1e-4)
-    .sort((a, b) => a[0] - b[0])
-  const merged = []
-
-  for (const interval of sorted) {
-    const previous = merged[merged.length - 1]
-    if (!previous || interval[0] > previous[1]) {
-      merged.push([...interval])
-    } else {
-      previous[1] = Math.max(previous[1], interval[1])
-    }
-  }
-
-  return merged
-}
-
-function splitSpanByIntervals(spanMin, spanMax, intervals) {
-  const blocked = mergeIntervals(
-    intervals
-      .map(([start, end]) => [Math.max(spanMin, start), Math.min(spanMax, end)])
-      .filter(([start, end]) => end - start > 1e-4),
-  )
-  if (!blocked.length) return [[spanMin, spanMax]]
-
-  const segments = []
-  let cursor = spanMin
-  for (const [start, end] of blocked) {
-    if (start - cursor >= EDGE_OVERLAY_MIN_LENGTH) segments.push([cursor, start])
-    cursor = Math.max(cursor, end)
-  }
-  if (spanMax - cursor >= EDGE_OVERLAY_MIN_LENGTH) segments.push([cursor, spanMax])
-  return segments
-}
-
-function stripCrossRange(plane, width, inset) {
-  const start = plane.coord + plane.sign * inset
-  const end = plane.coord + plane.sign * (inset + width)
-  return [Math.min(start, end), Math.max(start, end)]
-}
-
-function splitPlaneByCeilingLights(plane, axis, blockers, width, inset = 0) {
-  if (!blockers.length) return [plane]
-
-  const [crossMin, crossMax] = stripCrossRange(plane, width, inset)
-  const intervals = []
-
-  for (const blocker of blockers) {
-    if (axis === 'x') {
-      if (
-        blocker.maxX < crossMin - CEILING_LIGHT_CLEARANCE ||
-        blocker.minX > crossMax + CEILING_LIGHT_CLEARANCE
-      ) {
-        continue
-      }
-      intervals.push([
-        blocker.minZ - CEILING_LIGHT_CLEARANCE,
-        blocker.maxZ + CEILING_LIGHT_CLEARANCE,
-      ])
-    } else {
-      if (
-        blocker.maxZ < crossMin - CEILING_LIGHT_CLEARANCE ||
-        blocker.minZ > crossMax + CEILING_LIGHT_CLEARANCE
-      ) {
-        continue
-      }
-      intervals.push([
-        blocker.minX - CEILING_LIGHT_CLEARANCE,
-        blocker.maxX + CEILING_LIGHT_CLEARANCE,
-      ])
-    }
-  }
-
-  return splitSpanByIntervals(plane.spanMin, plane.spanMax, intervals).map(([spanMin, spanMax]) => ({
-    ...plane,
-    spanMin,
-    spanMax,
-  }))
-}
-
-function splitPlanesByCeilingLights(planes, axis, blockers, width, inset = 0) {
-  return planes.flatMap((plane) => splitPlaneByCeilingLights(plane, axis, blockers, width, inset))
+  const size = box.getSize(new THREE.Vector3())
+  return box.min.y > 4.5 && size.y < 1.5 && Math.max(size.x, size.z) >= 6
 }
 
 function collectEdgeOverlayState(scene) {
@@ -444,21 +335,7 @@ function collectEdgeOverlayState(scene) {
       planeLength(plane) >= EDGE_OVERLAY_MIN_LENGTH &&
       matchesTallPlane(plane, tallZ),
   )
-  const ceilingLightBlockers = collectCeilingLightBlockers(scene, box)
-  const topXWithoutLights = splitPlanesByCeilingLights(
-    topX,
-    'x',
-    ceilingLightBlockers,
-    CEILING_STRIP_WIDTH,
-    CEILING_EDGE_INSET,
-  )
-  const topZWithoutLights = splitPlanesByCeilingLights(
-    topZ,
-    'z',
-    ceilingLightBlockers,
-    CEILING_STRIP_WIDTH,
-    CEILING_EDGE_INSET,
-  )
+  const ceilingMeshes = findWallMeshes(scene, MAIN_HALL_MATERIALS, isCeilingSlabMesh)
 
   return {
     yBottom: box.min.y,
@@ -467,8 +344,7 @@ function collectEdgeOverlayState(scene) {
     bottomZ,
     topX,
     topZ,
-    topXWithoutLights,
-    topZWithoutLights,
+    ceilingMeshes,
   }
 }
 
@@ -481,10 +357,6 @@ function useEdgeShadowMaterials() {
       floorUInv: makeShadowMaterial('smoothstep(0.0, 1.0, vUv.x)', 0.16),
       floorV: makeShadowMaterial('1.0 - smoothstep(0.0, 1.0, vUv.y)', 0.16),
       floorVInv: makeShadowMaterial('smoothstep(0.0, 1.0, vUv.y)', 0.16),
-      ceilingU: makeShadowMaterial('1.0 - smoothstep(0.0, 1.0, vUv.x)', 0.085),
-      ceilingUInv: makeShadowMaterial('smoothstep(0.0, 1.0, vUv.x)', 0.085),
-      ceilingV: makeShadowMaterial('1.0 - smoothstep(0.0, 1.0, vUv.y)', 0.085),
-      ceilingVInv: makeShadowMaterial('smoothstep(0.0, 1.0, vUv.y)', 0.085),
     }),
     [],
   )
@@ -517,13 +389,13 @@ function VerticalEdgeStrip({ plane, y, height, top = false, material }) {
   )
 }
 
-function HorizontalEdgeStrip({ plane, y, width, material, renderOrder, inset = 0 }) {
+function HorizontalEdgeStrip({ plane, y, width, material, renderOrder }) {
   const length = planeLength(plane)
   const center = (plane.spanMin + plane.spanMax) / 2
   const position =
     plane.axis === 'x'
-      ? [plane.coord + plane.sign * (inset + width / 2), y, center]
-      : [center, y, plane.coord + plane.sign * (inset + width / 2)]
+      ? [plane.coord + plane.sign * (width / 2), y, center]
+      : [center, y, plane.coord + plane.sign * (width / 2)]
   const args = plane.axis === 'x' ? [width, length] : [length, width]
 
   return (
@@ -534,6 +406,138 @@ function HorizontalEdgeStrip({ plane, y, width, material, renderOrder, inset = 0
   )
 }
 
+// 天花压暗直接写进天花材质（onBeforeCompile）：按像素算到各墙顶线的距离，
+// 连续无断口、贴合几何；灯带（白灯/顶部蓝）是独立网格材质，天然不受影响，
+// 因此不再需要旧浮空贴片那套「按灯带切分避让」的逻辑。
+function applyCeilingEdgeOcclusion(material, state) {
+  const shadowMaterial = material.clone()
+  shadowMaterial.onBeforeCompile = (shader) => {
+    const xLines = state.topX
+      .slice(0, CEILING_MAX_LINES)
+      .map((plane) => new THREE.Vector4(plane.coord, plane.spanMin, plane.spanMax, plane.sign))
+    const zLines = state.topZ
+      .slice(0, CEILING_MAX_LINES)
+      .map((plane) => new THREE.Vector4(plane.coord, plane.spanMin, plane.spanMax, plane.sign))
+    while (xLines.length < CEILING_MAX_LINES) xLines.push(new THREE.Vector4())
+    while (zLines.length < CEILING_MAX_LINES) zLines.push(new THREE.Vector4())
+    shader.uniforms.ceilXLines = { value: xLines }
+    shader.uniforms.ceilXCount = { value: Math.min(state.topX.length, CEILING_MAX_LINES) }
+    shader.uniforms.ceilZLines = { value: zLines }
+    shader.uniforms.ceilZCount = { value: Math.min(state.topZ.length, CEILING_MAX_LINES) }
+    shader.uniforms.ceilEdgeRadius = { value: CEILING_EDGE_RADIUS }
+    shader.uniforms.ceilEdgeStrength = { value: CEILING_EDGE_STRENGTH }
+
+    shader.vertexShader = shader.vertexShader
+      .replace(
+        '#include <common>',
+        '#include <common>\nvarying vec3 vCeilWorldPos;\nvarying vec3 vCeilWorldNormal;',
+      )
+      .replace(
+        '#include <defaultnormal_vertex>',
+        '#include <defaultnormal_vertex>\nvCeilWorldNormal = normalize(mat3(modelMatrix) * objectNormal);',
+      )
+      .replace(
+        '#include <worldpos_vertex>',
+        '#include <worldpos_vertex>\nvCeilWorldPos = (modelMatrix * vec4(transformed, 1.0)).xyz;',
+      )
+
+    shader.fragmentShader = shader.fragmentShader
+      .replace(
+        '#include <common>',
+        `#include <common>
+varying vec3 vCeilWorldPos;
+varying vec3 vCeilWorldNormal;
+uniform vec4 ceilXLines[${CEILING_MAX_LINES}];
+uniform int ceilXCount;
+uniform vec4 ceilZLines[${CEILING_MAX_LINES}];
+uniform int ceilZCount;
+uniform float ceilEdgeRadius;
+uniform float ceilEdgeStrength;`,
+      )
+      .replace(
+        '#include <opaque_fragment>',
+        `// 每条墙顶线一个 (面coord, 沿向spanMin, spanMax, 朝内法向sign)：
+// d = 像点到墙面的水平距离，along 限定线段范围，多线取最大遮蔽。
+float ceilOcc = 0.0;
+for (int i = 0; i < ceilXCount; i++) {
+  vec4 ceilL = ceilXLines[i];
+  float ceilD = ceilL.w * (vCeilWorldPos.x - ceilL.x);
+  float ceilAlong = step(ceilL.y, vCeilWorldPos.z) * step(vCeilWorldPos.z, ceilL.z);
+  ceilOcc = max(ceilOcc, (1.0 - smoothstep(0.0, ceilEdgeRadius, ceilD)) * step(0.0, ceilD) * ceilAlong);
+}
+for (int i = 0; i < ceilZCount; i++) {
+  vec4 ceilL = ceilZLines[i];
+  float ceilD = ceilL.w * (vCeilWorldPos.z - ceilL.x);
+  float ceilAlong = step(ceilL.y, vCeilWorldPos.x) * step(vCeilWorldPos.x, ceilL.z);
+  ceilOcc = max(ceilOcc, (1.0 - smoothstep(0.0, ceilEdgeRadius, ceilD)) * step(0.0, ceilD) * ceilAlong);
+}
+float ceilFace = 1.0 - step(-0.5, vCeilWorldNormal.y);
+outgoingLight *= 1.0 - ceilOcc * ceilFace * ceilEdgeStrength;
+#include <opaque_fragment>`,
+      )
+  }
+  shadowMaterial.customProgramCacheKey = () => 'main-hall-ceiling-edge-v1'
+  shadowMaterial.needsUpdate = true
+  return shadowMaterial
+}
+
+// 给天花网格换装压暗材质；window.__mainHallCeilingShadows.toggle 供 A/B 截图对比。
+function CeilingEdgeShadowMaterial({ state }) {
+  useEffect(() => {
+    if (!state || !state.ceilingMeshes.length) return undefined
+
+    const entries = state.ceilingMeshes
+      .map((mesh) => {
+        const originalMaterial = mesh.material
+        const originals = Array.isArray(originalMaterial) ? originalMaterial : [originalMaterial]
+        const disposables = []
+        const patched = originals.map((material) => {
+          if (!MAIN_HALL_MATERIALS.includes(material?.name)) return material
+          const shadowMaterial = applyCeilingEdgeOcclusion(material, state)
+          disposables.push(shadowMaterial)
+          return shadowMaterial
+        })
+        if (!disposables.length) return null
+        mesh.material = Array.isArray(originalMaterial) ? patched : patched[0]
+        return { mesh, originalMaterial, patched, disposables }
+      })
+      .filter(Boolean)
+    if (!entries.length) return undefined
+
+    let enabled = true
+    const apply = (on) => {
+      entries.forEach(({ mesh, originalMaterial, patched }) => {
+        mesh.material = on
+          ? Array.isArray(originalMaterial) ? patched : patched[0]
+          : originalMaterial
+      })
+    }
+    if (typeof window !== 'undefined') {
+      window.__mainHallCeilingShadows = {
+        toggle: () => {
+          enabled = !enabled
+          apply(enabled)
+          return enabled ? 'on' : 'off'
+        },
+        lines: {
+          topX: state.topX.map((p) => ({ coord: +p.coord.toFixed(2), span: [p.spanMin, p.spanMax].map((v) => +v.toFixed(2)), sign: p.sign })),
+          topZ: state.topZ.map((p) => ({ coord: +p.coord.toFixed(2), span: [p.spanMin, p.spanMax].map((v) => +v.toFixed(2)), sign: p.sign })),
+        },
+      }
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') delete window.__mainHallCeilingShadows
+      entries.forEach(({ mesh, originalMaterial, disposables }) => {
+        mesh.material = originalMaterial
+        disposables.forEach((material) => material.dispose())
+      })
+    }
+  }, [state])
+
+  return null
+}
+
 function MainHallEdgeShadowOverlays({ scene }) {
   const state = useMemo(() => collectEdgeOverlayState(scene), [scene])
   const materials = useEdgeShadowMaterials()
@@ -542,10 +546,10 @@ function MainHallEdgeShadowOverlays({ scene }) {
   const bottomY = state.yBottom + BOTTOM_EDGE_HEIGHT / 2 + 0.01
   const topY = state.yTop - TOP_EDGE_HEIGHT / 2 - 0.01
   const floorY = state.yBottom + 0.052
-  const ceilingY = state.yTop - 0.052
 
   return (
     <group>
+      <CeilingEdgeShadowMaterial state={state} />
       {state.bottomX.map((plane, index) => (
         <VerticalEdgeStrip
           key={`bottom-x-${index}`}
@@ -564,7 +568,9 @@ function MainHallEdgeShadowOverlays({ scene }) {
           material={materials.verticalBottom}
         />
       ))}
-      {state.topXWithoutLights.map((plane, index) => (
+      {/* 墙顶竖条贴墙面、位于天花灯带下方，连续不断——若按灯带切缝（奖杯墙中央
+          正对 polySurface91 长灯带），墙顶暗带会在 ±6.4m 处突然消失，留下断层 */}
+      {state.topX.map((plane, index) => (
         <VerticalEdgeStrip
           key={`top-x-${index}`}
           plane={{ ...plane, axis: 'x' }}
@@ -574,7 +580,7 @@ function MainHallEdgeShadowOverlays({ scene }) {
           material={materials.verticalTop}
         />
       ))}
-      {state.topZWithoutLights.map((plane, index) => (
+      {state.topZ.map((plane, index) => (
         <VerticalEdgeStrip
           key={`top-z-${index}`}
           plane={{ ...plane, axis: 'z' }}
@@ -602,28 +608,6 @@ function MainHallEdgeShadowOverlays({ scene }) {
           width={FLOOR_STRIP_WIDTH}
           material={plane.sign > 0 ? materials.floorV : materials.floorVInv}
           renderOrder={15}
-        />
-      ))}
-      {state.topXWithoutLights.map((plane, index) => (
-        <HorizontalEdgeStrip
-          key={`ceiling-x-${index}`}
-          plane={{ ...plane, axis: 'x' }}
-          y={ceilingY}
-          width={CEILING_STRIP_WIDTH}
-          material={plane.sign > 0 ? materials.ceilingU : materials.ceilingUInv}
-          renderOrder={16}
-          inset={CEILING_EDGE_INSET}
-        />
-      ))}
-      {state.topZWithoutLights.map((plane, index) => (
-        <HorizontalEdgeStrip
-          key={`ceiling-z-${index}`}
-          plane={{ ...plane, axis: 'z' }}
-          y={ceilingY}
-          width={CEILING_STRIP_WIDTH}
-          material={plane.sign > 0 ? materials.ceilingV : materials.ceilingVInv}
-          renderOrder={16}
-          inset={CEILING_EDGE_INSET}
         />
       ))}
     </group>
