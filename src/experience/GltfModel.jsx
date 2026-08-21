@@ -10,6 +10,7 @@ import { CLICKABLE_EXHIBITS, EXHIBIT_EXCLUDES, MESH_NAME_TO_EXHIBIT, getExhibitI
 import { findMaterialPicture, findPictureTexture, textureToPhoto } from './pictureTexture.js'
 import { TechHallCornerShadows } from './TechHallCornerShadows.jsx'
 import { CareHallCornerShadows } from './CareHallCornerShadows.jsx'
+import { MainHallCornerShadows } from './MainHallCornerShadows.jsx'
 
 function listMaterialNames(material) {
   if (!material) return []
@@ -269,6 +270,14 @@ function buildWorldLayout(scene) {
 
 const sceneLayoutCache = new WeakMap()
 let ktx2TargetLogged = false
+
+// 高清屏面板贴图(按贴图名匹配):源图在 models-src/0817/,经 sharp 处理后放
+// public/models/panel-hires/。见 GltfModel 内 panelHires effect 的注释。
+const PANEL_HIRES_TEXTURES = {
+  '2屏内容': '/models/panel-hires/screen2-2x.jpg',
+  '3屏内容': '/models/panel-hires/screen3-4k.jpg',
+  '4屏内容（保持不变）': '/models/panel-hires/screen4.jpg',
+}
 // 模型资源缺陷兜底：场景里每个厅有一块深灰无贴图的"遮挡盒"（材质 phong1：
 // 关怀厅.020 / 电视厅.024 / 电影厅.014 / 技术设备厅.025 / 展望厅.016），
 // 其几何比海报墙的正面还靠前约 3cm，把整面墙的照片海报挡成黑墙。
@@ -976,6 +985,61 @@ export function GltfModel({
       }
     })
   }, [gl, scene])
+  // 立式屏静态图高清替换:压缩管线把全场景贴图统一限到 1536 边长,但 3屏 源图是
+  // 4K(3840×2160)、4屏 1696×712,运行时换回 public/models/panel-hires/ 的高清版;
+  // 2屏 源图本身只有 751×459(散图与模型内一致,无更高清来源),用 2 倍 lanczos
+  // 超分 + 轻锐化补偿。只换贴图、不动材质,亮度观感与现状一致(旧 KTX2 贴图
+  // 不 dispose:useGLTF 场景缓存被 HMR 复用时不至于引用已释放纹理)。
+  useEffect(() => {
+    // 无防重入守卫:React StrictMode 开发期双挂载时,首次的异步加载会被本 effect
+    // 的 cleanup 置废,重挂载必须重新发起才能最终挂上(重复加载同一 URL 无副作用)
+    let disposed = false
+    const maxAnisotropy = gl.capabilities?.getMaxAnisotropy?.() ?? 1
+    const loader = new THREE.TextureLoader()
+    const pending = new Map()
+
+    scene.traverse((object) => {
+      if (!object.isMesh) return
+      const materials = Array.isArray(object.material) ? object.material : [object.material]
+      for (const material of materials) {
+        if (!material) continue
+        for (const slot of ['map', 'emissiveMap']) {
+          const original = material[slot]
+          const url = PANEL_HIRES_TEXTURES[original?.name]
+          if (!url) continue
+          let load = pending.get(url)
+          if (!load) {
+            load = loader.loadAsync(url).then((texture) => {
+              // 对齐原贴图的采样参数(glTF 翻转/平铺/UV 变换),否则画面会上下颠倒
+              texture.colorSpace = THREE.SRGBColorSpace
+              texture.flipY = original.flipY
+              texture.wrapS = original.wrapS
+              texture.wrapT = original.wrapT
+              texture.repeat.copy(original.repeat)
+              texture.offset.copy(original.offset)
+              texture.rotation = original.rotation
+              texture.anisotropy = Math.min(8, maxAnisotropy)
+              texture.name = original.name
+              texture.needsUpdate = true
+              return texture
+            })
+            pending.set(url, load)
+          }
+          load
+            .then((texture) => {
+              if (disposed) return
+              material[slot] = texture
+            })
+            .catch((error) => console.warn('[gltf] 高清屏贴图加载失败', url, error))
+        }
+      }
+    })
+
+    return () => {
+      disposed = true
+    }
+  }, [gl, scene])
+
   const mountedRef = useRef(true)
 
   useEffect(() => {
@@ -1318,6 +1382,7 @@ export function GltfModel({
       />
       <TechHallCornerShadows scene={scene} worldLayout={worldLayout} />
       <CareHallCornerShadows scene={scene} worldLayout={worldLayout} />
+      <MainHallCornerShadows scene={scene} />
       {hoverPicture ? (
         <PictureHoverHint
           point={hoverPicture.point}

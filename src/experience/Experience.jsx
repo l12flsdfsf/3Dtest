@@ -7,6 +7,7 @@ import { SceneEnvironment } from './SceneEnvironment.jsx'
 import { Hall } from './Hall.jsx'
 import { Player } from './Player.jsx'
 import { GltfModel } from './GltfModel.jsx'
+import { BroadcastHallCeilingLights } from './BroadcastHallCeilingLights.jsx'
 import { AutoRoamCamera } from './AutoRoamCamera.jsx'
 import { TrophyDisplay } from './TrophyDisplay.jsx'
 import { CONFIG } from '../data/config.js'
@@ -130,6 +131,11 @@ export function Experience({
 
       <SceneEnvironment />
       <Lights />
+
+      {/* 广播厅天花 3 圆盘灯的光池（worldLayout 就绪 = GLTF 已附加，组件自取场景） */}
+      {usingExternalModel && worldLayout ? (
+        <BroadcastHallCeilingLights worldLayout={worldLayout} />
+      ) : null}
 
       <Suspense fallback={null}>
         {usingExternalModel ? (
