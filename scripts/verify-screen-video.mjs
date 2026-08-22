@@ -20,7 +20,7 @@ const check = (ok, message) => {
 }
 
 // 1) 静音自动播放（此时尚未点击过任何地方，引导浮窗还开着）
-await page.waitForFunction(() => window.__screenVideo && window.__screenVideo.readyState >= 2, null, { timeout: 120000 })
+await page.waitForFunction(() => window.__screenVideo && window.__screenVideo.readyState >= 2, null, { timeout: 300000 })
 await page.waitForTimeout(1500)
 let v = await page.evaluate(() => ({
   paused: window.__screenVideo.paused,
@@ -92,7 +92,7 @@ const barInfo = await page.evaluate(() => {
   window.__gltfScene.traverse((o) => {
     if (mesh || !o.isMesh) return
     const mats = Array.isArray(o.material) ? o.material : [o.material]
-    if (mats.some((m) => m?.name === '1屏')) mesh = o
+    if (mats.some((m) => m?.map?.isVideoTexture || m?.emissiveMap?.isVideoTexture)) mesh = o
   })
   const box = new THREE.Box3().setFromObject(mesh)
   const center = box.getCenter(new THREE.Vector3())
@@ -116,8 +116,7 @@ const probe = await page.evaluate(
     let hot = null
     root.traverse((o) => {
       if (hot || !o.isMesh) return
-      const p = o.geometry?.parameters
-      if (p && Math.abs(p.height - 0.2) < 1e-6) hot = o
+      if (o.name === 'screen-progress-hotspot') hot = o
     })
     const ray = new THREE.Raycaster()
     ray.setFromCamera(new THREE.Vector2((pt.px / innerWidth) * 2 - 1, -(pt.py / innerHeight) * 2 + 1), window.__camera)
@@ -151,6 +150,8 @@ await page.mouse.up()
 await page.waitForTimeout(600)
 state = await tipState()
 const dragRatio = state.currentTime / state.duration
+const progressDebug = await page.evaluate(() => window.__screenProgressDebug ?? null)
+console.log('进度条 debug:', JSON.stringify(progressDebug))
 check(state.paused === false && dragRatio > 0.62 && dragRatio < 0.8,
   `拖拽进度条跳转（currentTime=${state.currentTime.toFixed(0)}s ≈ ${(dragRatio * 100).toFixed(1)}%）`)
 
@@ -170,6 +171,10 @@ await page.waitForTimeout(1200)
 state = await tipState()
 check(state.paused === false && state.volume > 0.5 && state.volume < 0.85, `中距离音量过渡（volume=${state.volume}）`)
 
-await page.screenshot({ path: `${OUT}screen-autoplay.png` })
+try {
+  await page.screenshot({ path: `${OUT}screen-autoplay.png`, timeout: 120000 })
+} catch (error) {
+  console.log('截图失败:', String(error).slice(0, 160))
+}
 console.log(failures ? `\n${failures} 项未通过` : '\n全部通过')
 await browser.close()

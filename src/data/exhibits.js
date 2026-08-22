@@ -221,8 +221,28 @@ export const MESH_EXHIBIT_INFO = {
 
 // mesh 名 -> 展品键（含 EXHIBIT_INFO 与 MESH_EXHIBIT_INFO 两类）
 export const MESH_NAME_TO_EXHIBIT = {}
+function meshNameAliases(name) {
+  const aliases = new Set([name])
+  const compact = String(name).replace(/[.\s]/g, '')
+  aliases.add(compact)
+
+  const dotted = compact.match(/^(.*\D)(\d{3})$/)
+  if (dotted) aliases.add(`${dotted[1]}.${dotted[2]}`)
+
+  if (compact.endsWith('_1')) aliases.add(compact.slice(0, -2))
+
+  return [...aliases]
+}
+
 for (const [key, entry] of Object.entries(MESH_EXHIBIT_INFO)) {
-  for (const meshName of entry.meshNames ?? []) MESH_NAME_TO_EXHIBIT[meshName] = key
+  const meshNames = new Set()
+  for (const meshName of entry.meshNames ?? []) {
+    for (const alias of meshNameAliases(meshName)) {
+      meshNames.add(alias)
+      MESH_NAME_TO_EXHIBIT[alias] = key
+    }
+  }
+  entry.meshNames = [...meshNames]
 }
 
 // 不参与展品 UI 的命名贴图（书本等）

@@ -301,6 +301,34 @@ function removeOccludingBlankPanels(scene) {
   return doomed.length
 }
 
+// scene-site1.glb 中 pCube178.001 不是展柜玻璃，而是覆盖整个技术厅的误导出玻璃体：
+// 世界范围约 10.53 x 1.07 x 13.07m，Y=0.724~1.792，正好贯穿玩家视线和胶囊。
+// GLTFLoader 会把节点名净化为 pCube178001，因此统一去掉分隔符后匹配。必须在
+// 布局、点击射线和碰撞树构建前移除，避免透明遮挡、全厅碰撞回推和额外透明过绘。
+const TECH_HALL_BLOCKER_KEYS = new Set(['pcube178001'])
+
+function normalizeMeshName(name) {
+  return typeof name === 'string' ? name.replace(/[._-]/g, '').toLowerCase() : ''
+}
+
+function removeTechHallTransparentBlockers(scene) {
+  const removed = []
+
+  scene.traverse((object) => {
+    const normalizedName = normalizeMeshName(object.name)
+    if (!object.isMesh || !TECH_HALL_BLOCKER_KEYS.has(normalizedName)) return
+    removed.push(object)
+  })
+
+  for (const object of removed) object.parent?.remove(object)
+  if (removed.length) {
+    console.info(
+      `[gltf] 已移除 ${removed.length} 个技术厅误导出透明遮挡体: ${removed.map((object) => object.name).join(', ')}`,
+    )
+  }
+  return removed.length
+}
+
 // The source material relies on a Unity reflection probe that is not present
 // in this renderer. Keep the glass locally bright without reintroducing a
 // scene-wide environment map or a view-dependent white reflection.
@@ -310,14 +338,14 @@ function fixShowcaseGlassMaterials(scene) {
     if (!object.isMesh) return
     const materials = Array.isArray(object.material) ? object.material : [object.material]
     for (const material of materials) {
-      if (!material || !['玻璃', '电视厅玻璃'].includes(material.name)) continue
+      if (!material || !['玻璃', '玻璃_9eea6', '电视厅玻璃'].includes(material.name)) continue
       material.transparent = true
       material.depthWrite = false
       material.metalness = 0
-      material.roughness = 0.85
-      material.envMapIntensity = 0
-      material.color.setScalar(0.9)
-      material.opacity = 0.12
+      material.roughness = 0.72
+      material.envMapIntensity = 0.04
+      material.color.setScalar(0.86)
+      material.opacity = 0.16
       material.needsUpdate = true
       fixed += 1
     }
@@ -326,8 +354,80 @@ function fixShowcaseGlassMaterials(scene) {
   return fixed
 }
 
+function brightenShowcaseDisplayMaterials(scene) {
+  const emissiveBoosts = new Map([
+    ['电影厅展柜白磨砂', 1],
+    ['电影厅展柜红', 1],
+    ['技术设备厅展台', 1],
+    ['展示柜展望厅', 0.82],
+    ['phong15', 1],
+    ['phong16', 1],
+    ['phong17', 1],
+  ])
+  const solidColorFixes = new Map([
+    ['展示柜橙展望厅', '#b58a58'],
+  ])
+  let fixed = 0
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    for (const material of materials) {
+      if (!material) continue
+
+      const emissiveScalar = emissiveBoosts.get(material.name)
+      if (emissiveScalar !== undefined) {
+        if (material.emissive) material.emissive.setScalar(emissiveScalar)
+        material.emissiveIntensity = Math.max(material.emissiveIntensity ?? 1, 1)
+        if (typeof material.metalness === 'number') {
+          material.metalness = Math.min(material.metalness, 0.22)
+        }
+        material.needsUpdate = true
+        fixed += 1
+      }
+
+      const color = solidColorFixes.get(material.name)
+      if (color && material.color) {
+        material.color.set(color)
+        material.roughness = Math.min(material.roughness ?? 0.5, 0.46)
+        material.needsUpdate = true
+        fixed += 1
+      }
+    }
+  })
+
+  if (fixed) console.info(`[gltf] 已调亮 ${fixed} 处展柜/展台材质`)
+  return fixed
+}
+
 // 自发光面板（大屏、照片墙、展板灯箱）不吃环境反射：它们靠 emissive 自照明，
 // IBL 的镜面反射只会在画面上罩一层白纱，让视频/照片看起来发灰发蒙。
+function fixTechDeviceLostMaterials(scene) {
+  const darkDeviceMaterials = new Set([
+    'Material.012',
+    'tripo_mat_6413779d-70e2-4139-825e-aa515461d8bd',
+    'tripo_mat_3d1299e9-2705-4a17-97e7-cc70d7ddeb4a',
+  ])
+  let fixed = 0
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    for (const material of materials) {
+      if (!material || !darkDeviceMaterials.has(material.name) || material.map) continue
+
+      if (material.color) material.color.set('#18191b')
+      if (typeof material.metalness === 'number') material.metalness = 0.08
+      if (typeof material.roughness === 'number') material.roughness = 0.78
+      material.needsUpdate = true
+      fixed += 1
+    }
+  })
+
+  if (fixed) console.info(`[gltf] restored dark fallback on ${fixed} tech-device materials`)
+  return fixed
+}
+
 function suppressEnvReflectionOnEmissivePanels(scene) {
   let count = 0
   scene.traverse((object) => {
@@ -386,6 +486,108 @@ function makePicturePanelsUnlit(scene) {
   return count
 }
 
+// 场地 1 的奖杯交付文件丢掉了几件复合模型的局部 TRS：父级原本是 100 倍，
+// 底座子件用 0.01 倍抵消。转换器按联合包围盒回缩父级后，杯体只剩轮廓/碎片。
+// 另一个高模 node_0001 被模糊名称匹配成广播厅的 node_0，整件被摆到了别处。
+// 这里只在检测到异常缩放/新高模节点时恢复，旧场景中本来正确的奖杯不会被改动。
+function repairSite1TrophyWall(scene) {
+  let fixed = 0
+  const setTransform = (object, position, quaternion, scale) => {
+    if (!object) return
+    object.position.fromArray(position)
+    object.quaternion.fromArray(quaternion)
+    object.scale.fromArray(scale)
+    object.updateMatrix()
+  }
+
+  const jiangBei14 = scene.getObjectByName('JiangBei_14')
+  if (jiangBei14 && Math.max(...jiangBei14.scale.toArray().map(Math.abs)) < 10) {
+    setTransform(
+      jiangBei14,
+      [1.841437816619873, 0.8645029664039612, -17.446176528930664],
+      [0.5, 0.5, -0.5, 0.5],
+      [100, 100, 100],
+    )
+    setTransform(
+      jiangBei14.getObjectByName('Box003'),
+      [-0.0007024109363555908, 0, -0.0007011890411376953],
+      [0, 0, 0.7071068286895752, 0.7071067094802856],
+      [0.009999998845160007, 0.009999998845160007, 0.009999999776482582],
+    )
+    setTransform(
+      jiangBei14.getObjectByName('Cylinder002'),
+      [0.0015654116868972778, 0, -0.005652093328535557],
+      [0, 0, 0.7071068286895752, 0.7071067094802856],
+      [0.009999998845160007, 0.009999998845160007, 0.009999999776482582],
+    )
+    fixed += 1
+  }
+
+  const jiangBei5 = scene.getObjectByName('JiangBei_5')
+  if (jiangBei5 && Math.max(...jiangBei5.scale.toArray().map(Math.abs)) < 10) {
+    setTransform(
+      jiangBei5,
+      [-2.192106246948242, 3.390345335006714, -17.43168067932129],
+      [0.5, -0.5, 0.5, 0.5],
+      [100, 100, 100],
+    )
+    setTransform(
+      jiangBei5.getObjectByName('Box001'),
+      [0.0011799037456512451, 0.0000027455389499664307, -0.003952350467443466],
+      [0, 0, 0.7071068286895752, 0.7071067094802856],
+      [0.010000000707805157, 0.010000000707805157, 0.009999999776482582],
+    )
+    setTransform(
+      jiangBei5.getObjectByName('Cylinder001'),
+      [0.0003362596035003662, 0, -0.008067380636930466],
+      [0, 0, 0.7071068286895752, 0.7071067094802856],
+      [0.010000000707805157, 0.010000000707805157, 0.009999999776482582],
+    )
+    fixed += 1
+  }
+
+  const jiangBei6 = scene.getObjectByName('JiangBei_6')
+  if (jiangBei6 && Math.max(...jiangBei6.scale.toArray().map(Math.abs)) < 10) {
+    setTransform(
+      jiangBei6,
+      [2.964223861694336, 2.2055492401123047, -17.42011833190918],
+      [0.5, 0.5, -0.5, 0.5],
+      [100, 100, 100],
+    )
+    fixed += 1
+  }
+
+  const deliveredHighPoly = scene.getObjectByName('node_0001')
+  if (deliveredHighPoly?.isMesh) {
+    const geometry = deliveredHighPoly.geometry
+    if (!geometry.boundingBox) geometry.computeBoundingBox()
+    const localSize = geometry.boundingBox?.getSize(new THREE.Vector3())
+    if (localSize && localSize.x > 0 && localSize.y > 0 && localSize.z > 0) {
+      // 新高模是 Z-up；转成展厅的 Y-up 后，精确贴回旧奖杯 1 的陈列格。
+      deliveredHighPoly.position.set(0, 0, 0)
+      deliveredHighPoly.rotation.set(Math.PI / 2, 0, 0)
+      deliveredHighPoly.scale.set(0.59 / localSize.x, 0.34 / localSize.y, 0.98 / localSize.z)
+      deliveredHighPoly.updateMatrixWorld(true)
+
+      const box = new THREE.Box3().setFromObject(deliveredHighPoly)
+      const center = box.getCenter(new THREE.Vector3())
+      deliveredHighPoly.position.set(2.965 - center.x, 3.4 - box.min.y, -17.42 - center.z)
+      deliveredHighPoly.updateMatrixWorld(true)
+
+      const materials = Array.isArray(deliveredHighPoly.material)
+        ? deliveredHighPoly.material
+        : [deliveredHighPoly.material]
+      for (const material of materials) {
+        if (material?.map) material.map.name = '奖杯1_basecolor'
+      }
+      fixed += 1
+    }
+  }
+
+  if (fixed) console.info(`[gltf] repaired ${fixed} malformed trophy-wall model(s)`)
+  return fixed
+}
+
 // 单个网格的三角形总数（多材质分组时索引为准）
 function suppressTrophyEnvReflection(scene) {
   let count = 0
@@ -409,6 +611,49 @@ function suppressTrophyEnvReflection(scene) {
   })
 
   if (count) console.info(`[lighting] disabled environment reflections on ${count} trophy materials`)
+}
+
+function isScreenVideoMaterial(material) {
+  const name = typeof material?.name === 'string' ? material.name.trim() : ''
+  const baseName = name.replace(/#\d+$/, '')
+  return baseName === CONFIG.screenVideo.material
+}
+
+function scoreScreenVideoCandidate(size, center) {
+  const width = Math.max(size.x, size.z)
+  const height = size.y
+  const thickness = Math.min(size.x, size.z)
+  if (width < 2 || height < 1.2) return -Infinity
+
+  const area = width * height
+  const entranceBias = center.z > 0 ? 8 : 0
+  const centerBias = Math.max(0, 4 - Math.abs(center.x)) * 0.5
+  const thinBias = thickness < 0.35 ? 2 : 0
+  return area + height * 3 + entranceBias + centerBias + thinBias
+}
+
+function findScreenVideoTarget(scene) {
+  const candidates = []
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    materials.forEach((material, materialIndex) => {
+      if (!isScreenVideoMaterial(material)) return
+
+      const box = new THREE.Box3().setFromObject(object)
+      if (box.isEmpty()) return
+
+      const center = box.getCenter(new THREE.Vector3())
+      const size = box.getSize(new THREE.Vector3())
+      const score = scoreScreenVideoCandidate(size, center)
+      if (!Number.isFinite(score)) return
+
+      candidates.push({ mesh: object, material, materialIndex, center, size, score })
+    })
+  })
+
+  return candidates.sort((a, b) => b.score - a.score)[0] ?? null
 }
 
 function isShadowSurface(material) {
@@ -450,6 +695,48 @@ function countMeshTriangles(mesh) {
 // 高密度网格（如 tripo 生成的展品实物，单个几万面）不适合直接进碰撞 Octree：
 // 全量 2.8M 三角形的八叉树会吃掉 1-2GB 内存并卡死解析阶段。
 // 这类网格改用世界包围盒的 12 三角代理做碰撞，建筑墙体/展板仍走精确三角。
+function listObjectMaterials(object) {
+  if (!object?.material) return []
+  return Array.isArray(object.material) ? object.material : [object.material]
+}
+
+function isExhibitTextureMaterial(material) {
+  const mapName = typeof material?.map?.name === 'string' ? material.map.name : ''
+  const match = mapName.match(/^(.+)_basecolor$/i)
+  if (!match) return false
+
+  const name = match[1].trim()
+  return Boolean(name && !EXHIBIT_EXCLUDES.has(name) && CLICKABLE_EXHIBITS.has(name))
+}
+
+function shouldSkipPlayerCollision(object, size = null) {
+  const materials = listObjectMaterials(object)
+  if (materials.some(isExhibitTextureMaterial)) return true
+
+  const objectName = typeof object?.name === 'string' ? object.name : ''
+  const meshKey = MESH_NAME_TO_EXHIBIT[objectName]
+  if (meshKey && CLICKABLE_EXHIBITS.has(meshKey)) return true
+
+  if (/^(tripo_node_|mesh_rep_0_ori_repair_quad)/.test(objectName)) return true
+  if (materials.some((material) => /^tripo_mat_/.test(material?.name ?? ''))) return true
+  if (
+    materials.some((material) => {
+      const name = typeof material?.name === 'string' ? material.name : ''
+      return name.includes('玻璃') || (material?.transparent === true && (material.opacity ?? 1) <= 0.65)
+    })
+  ) {
+    return true
+  }
+
+  if (size) {
+    const maxSpan = Math.max(size.x, size.y, size.z)
+    const horizontalSpan = Math.max(size.x, size.z)
+    if (maxSpan < 1.2 || (horizontalSpan < 1.6 && size.y < 1.4)) return true
+  }
+
+  return false
+}
+
 const DENSE_TRIANGLE_LIMIT = 2000
 // 精确三角总量预算：实测 three Octree 入树 ~8K 三角≈1.6s，40K 约 10s 内可完成；
 // 超预算的网格退化为包围盒代理（分格小盒），不再依赖场景级一刀切禁用
@@ -461,7 +748,7 @@ const TOPOLOGY_SENSITIVE_MIN_SPAN = 4
 function countSceneTriangles(scene) {
   let total = 0
   scene.traverse((object) => {
-    if (object.isMesh) total += countMeshTriangles(object)
+    if (object.isMesh && !shouldSkipPlayerCollision(object)) total += countMeshTriangles(object)
   })
   return total
 }
@@ -496,14 +783,19 @@ function buildCollisionWorld(scene) {
   const pendingPrecise = []
   let preciseTriangleCount = 0
   let meshCount = 0
+  let skippedMeshCount = 0
 
   scene.traverse((object) => {
     if (!object.isMesh) return
     meshCount += 1
-    const triangleCount = countMeshTriangles(object)
     const box = new THREE.Box3().setFromObject(object)
     if (box.isEmpty()) return
     const size = box.getSize(new THREE.Vector3())
+    if (shouldSkipPlayerCollision(object, size)) {
+      skippedMeshCount += 1
+      return
+    }
+    const triangleCount = countMeshTriangles(object)
 
     // Large, low-poly room meshes can include actual door openings. Bounding
     // boxes would fill those openings, so keep their triangle topology.
@@ -817,6 +1109,19 @@ function ScreenProgressBar({ bar, videoRef, barInteractRef }) {
   const seek = (ratio) => {
     const video = videoRef.current
     if (video?.duration) video.currentTime = ratio * video.duration
+    if (typeof window !== 'undefined') {
+      window.__screenProgressDebug = {
+        ratio,
+        currentTime: video?.currentTime ?? null,
+        duration: video?.duration ?? null,
+      }
+    }
+  }
+
+  const seekFromWorldX = (x) => {
+    const ratio = ratioFromX(x)
+    seek(ratio)
+    return ratio
   }
 
   const handlePointerDown = (event) => {
@@ -825,7 +1130,19 @@ function ScreenProgressBar({ bar, videoRef, barInteractRef }) {
     event.nativeEvent?.stopImmediatePropagation?.()
     if (barInteractRef) barInteractRef.current = performance.now()
     draggingRef.current = true
-    seek(ratioFromX(event.point.x))
+    seekFromWorldX(event.point.x)
+    try {
+      const pointerId = event.pointerId ?? event.nativeEvent?.pointerId
+      if (Number.isFinite(pointerId)) gl.domElement.setPointerCapture?.(pointerId)
+    } catch {
+      // Pointer capture is only a drag robustness hint; window-level move handlers are the fallback.
+    }
+  }
+
+  const handlePointerMove = (event) => {
+    if (!draggingRef.current) return
+    event.stopPropagation()
+    seekFromWorldX(event.point.x)
   }
 
   useEffect(() => {
@@ -834,25 +1151,54 @@ function ScreenProgressBar({ bar, videoRef, barInteractRef }) {
     const plane = new THREE.Plane(new THREE.Vector3(0, 0, 1), -bar.z)
     const hit = new THREE.Vector3()
 
-    const onMove = (event) => {
-      if (!draggingRef.current) return
+    const ratioFromClientPoint = (event) => {
       const rect = gl.domElement.getBoundingClientRect()
       ndc.set(
         ((event.clientX - rect.left) / rect.width) * 2 - 1,
         -((event.clientY - rect.top) / rect.height) * 2 + 1,
       )
       raycaster.setFromCamera(ndc, camera)
-      if (raycaster.ray.intersectPlane(plane, hit)) seek(ratioFromX(hit.x))
+      if (!raycaster.ray.intersectPlane(plane, hit)) return null
+
+      const insideX = hit.x >= bar.x - bar.width / 2 && hit.x <= bar.x + bar.width / 2
+      const insideY = Math.abs(hit.y - bar.y) <= 0.18
+      if (!insideX || !insideY) return null
+
+      return ratioFromX(hit.x)
+    }
+
+    const onDown = (event) => {
+      const ratio = ratioFromClientPoint(event)
+      if (ratio === null) return
+      event.preventDefault()
+      event.stopPropagation()
+      if (barInteractRef) barInteractRef.current = performance.now()
+      draggingRef.current = true
+      seek(ratio)
+    }
+
+    const onMove = (event) => {
+      if (!draggingRef.current) return
+      const ratio = ratioFromClientPoint(event)
+      if (ratio !== null) seek(ratio)
     }
     const onUp = () => {
       draggingRef.current = false
     }
 
+    gl.domElement.addEventListener('pointerdown', onDown, true)
+    gl.domElement.addEventListener('mousedown', onDown, true)
     window.addEventListener('pointermove', onMove)
     window.addEventListener('pointerup', onUp)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
     return () => {
+      gl.domElement.removeEventListener('pointerdown', onDown, true)
+      gl.domElement.removeEventListener('mousedown', onDown, true)
       window.removeEventListener('pointermove', onMove)
       window.removeEventListener('pointerup', onUp)
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
     }
   }, [bar, camera, gl])
 
@@ -890,8 +1236,13 @@ function ScreenProgressBar({ bar, videoRef, barInteractRef }) {
       </mesh>
       {/* 加高的隐形拖拽热区（不渲染，只承担命中与拖拽） */}
       <mesh
+        name="screen-progress-hotspot"
         position={[bar.x, bar.y, bar.z]}
         onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={() => {
+          draggingRef.current = false
+        }}
         onPointerOver={() => {
           document.body.style.cursor = 'ew-resize'
         }}
@@ -900,7 +1251,7 @@ function ScreenProgressBar({ bar, videoRef, barInteractRef }) {
         }}
       >
         <planeGeometry args={[bar.width, 0.26]} />
-        <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+        <meshBasicMaterial transparent opacity={0} depthWrite={false} side={THREE.DoubleSide} />
       </mesh>
     </group>
   )
@@ -949,7 +1300,11 @@ export function GltfModel({
   })
   const worldLayout = useMemo(() => {
     removeOccludingBlankPanels(scene) // 必须先于布局/碰撞体构建
+    repairSite1TrophyWall(scene) // 必须先于布局/碰撞体与奖杯材质处理
+    removeTechHallTransparentBlockers(scene)
     fixShowcaseGlassMaterials(scene)
+    brightenShowcaseDisplayMaterials(scene)
+    fixTechDeviceLostMaterials(scene)
     makePicturePanelsUnlit(scene)
     suppressEnvReflectionOnEmissivePanels(scene)
     suppressTrophyEnvReflection(scene)
@@ -1081,23 +1436,17 @@ export function GltfModel({
   const screenVideoRef = useRef(null)
   const barInteractRef = useRef(0) // 最近一次进度条交互时间（丢弃其后 0.8s 内合成的面板点击）
   const [screenBar, setScreenBar] = useState(null)
+  const [screenVideoPlane, setScreenVideoPlane] = useState(null)
 
   useEffect(() => {
     let disposed = false
 
-    scene.traverse((object) => {
-      if (screenRef.current || !object.isMesh) return
-      const materials = Array.isArray(object.material) ? object.material : [object.material]
-      const materialIndex = materials.findIndex((item) => item?.name === CONFIG.screenVideo.material)
-      if (materialIndex < 0) return
-      const material = materials[materialIndex]
-      const box = new THREE.Box3().setFromObject(object)
-      const center = box.getCenter(new THREE.Vector3())
-      const size = box.getSize(new THREE.Vector3())
-      screenRef.current = { mesh: object, material, materialIndex, center, size }
-    })
+    screenRef.current = findScreenVideoTarget(scene)
     const screen = screenRef.current
-    if (!screen) return undefined
+    if (!screen) {
+      console.warn(`[screen-video] 未找到可用的 ${CONFIG.screenVideo.material} 大屏材质`)
+      return undefined
+    }
 
     const { material } = screen
     const originalMeshMaterial = screen.mesh.material
@@ -1118,53 +1467,49 @@ export function GltfModel({
     screenVideoRef.current = video
     if (typeof window !== 'undefined') window.__screenVideo = video // 调试/自动化测试
 
+    const startTime = Number(CONFIG.screenVideo.startTime) || 0
+    const onMetadata = () => {
+      if (!startTime || disposed) return
+      const duration = Number.isFinite(video.duration) ? video.duration : 0
+      video.currentTime = duration > 1 ? Math.min(startTime, duration - 1) : startTime
+    }
+
     let texture = null
     let videoMaterial = null
     const onReady = () => {
       if (disposed) return
-      // 视频上屏：map/emissiveMap 一起换成视频贴图，屏幕自发光不依赖场景灯光；
-      // 原色 #e7e7e7 会给画面染灰，换白色让视频原色显示
+      // 新场景的大屏 UV 会裁到视频红底区域；这里在屏幕前覆盖一张标准 UV 视频面片。
       texture = new THREE.VideoTexture(video)
       texture.colorSpace = THREE.SRGBColorSpace
-      // 等比铺满面板（cover）：按面板与视频的宽高比裁掉多出的边
       const videoAspect = (video.videoWidth || 16) / (video.videoHeight || 9)
       const panelAspect = screen.size.x / screen.size.y
-      let repeatX = 1
-      let offsetX = 0
-      let repeatY = 1
-      let offsetY = 0
       if (videoAspect > panelAspect) {
-        repeatX = panelAspect / videoAspect
-        offsetX = (1 - repeatX) / 2
+        const repeatX = panelAspect / videoAspect
+        texture.repeat.set(repeatX, 1)
+        texture.offset.set((1 - repeatX) / 2, 0)
       } else {
-        repeatY = videoAspect / panelAspect
-        offsetY = (1 - repeatY) / 2
+        const repeatY = videoAspect / panelAspect
+        texture.repeat.set(1, repeatY)
+        texture.offset.set(0, (1 - repeatY) / 2)
       }
-      // 该面板 UV 上下颠倒：采样区间沿 v 反向实现垂直翻转
-      // （不用 texture.flipY——该上传参数对视频贴图无效，实测不生效）
-      if (CONFIG.screenVideo.vFlip) {
-        repeatY = -repeatY
-        offsetY = 1 - offsetY
-      }
-      texture.repeat.set(repeatX, repeatY)
-      texture.offset.set(offsetX, offsetY)
-      // Do not inherit the source PBR panel material. Its transparency,
-      // metalness, reflections, fog, and tone mapping wash the video out.
       videoMaterial = new THREE.MeshBasicMaterial({
-        name: material.name,
+        name: `${material.name}-video-overlay`,
         map: texture,
         color: 0xffffff,
-        side: material.side,
+        side: THREE.DoubleSide,
         fog: false,
         toneMapped: false,
       })
-      if (Array.isArray(originalMeshMaterial)) {
-        const screenMaterials = [...originalMeshMaterial]
-        screenMaterials[screen.materialIndex] = videoMaterial
-        screen.mesh.material = screenMaterials
-      } else {
-        screen.mesh.material = videoMaterial
+
+      const plane = {
+        x: screen.center.x,
+        y: screen.center.y,
+        z: screen.center.z + screen.size.z / 2 + 0.018,
+        width: screen.size.x,
+        height: screen.size.y,
+        material: videoMaterial,
       }
+      setScreenVideoPlane(plane)
 
       // 进度条几何参数（JSX 组件按世界坐标摆放）。
       // 距屏面 8cm：太贴近（1-2cm）时点击射线在热区与面板间的浮点误差内
@@ -1176,6 +1521,7 @@ export function GltfModel({
         width: screen.size.x * 0.86,
       })
     }
+    video.addEventListener('loadedmetadata', onMetadata, { once: true })
     video.addEventListener('loadeddata', onReady, { once: true })
     video.load()
     video.play().catch(() => {}) // 静音自动播放；个别环境被策略拦截时等首次点击
@@ -1220,6 +1566,7 @@ export function GltfModel({
       texture?.dispose()
       videoMaterial?.dispose()
       setScreenBar(null)
+      setScreenVideoPlane(null)
       screenVideoRef.current = null
       screenRef.current = null
       if (typeof window !== 'undefined') window.__screenVideo = null
@@ -1243,6 +1590,12 @@ export function GltfModel({
     const video = screenVideoRef.current
     const screen = screenRef.current
     if (!video || !screen || video.paused) return
+
+    const loopStart = Number(CONFIG.screenVideo.startTime) || 0
+    const loopEnd = Number(CONFIG.screenVideo.loopEndTime) || 0
+    if (loopEnd > loopStart && video.currentTime >= loopEnd) {
+      video.currentTime = loopStart
+    }
 
     const { maxVolume, fullVolumeDistance, muteDistance } = CONFIG.screenVideo
     const distance = camera.position.distanceTo(screen.center)
@@ -1385,6 +1738,16 @@ export function GltfModel({
       <CareHallCornerShadows scene={scene} worldLayout={worldLayout} />
       <RectHallsCornerShadows scene={scene} worldLayout={worldLayout} />
       <MainHallCornerShadows scene={scene} />
+      {screenVideoPlane ? (
+        <mesh
+          name="screen-video-overlay"
+          position={[screenVideoPlane.x, screenVideoPlane.y, screenVideoPlane.z]}
+          raycast={() => {}}
+        >
+          <planeGeometry args={[screenVideoPlane.width, screenVideoPlane.height]} />
+          <primitive object={screenVideoPlane.material} attach="material" />
+        </mesh>
+      ) : null}
       {hoverPicture ? (
         <PictureHoverHint
           point={hoverPicture.point}

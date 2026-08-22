@@ -4,7 +4,7 @@ function resolveModelUrl() {
     const override = new URLSearchParams(window.location.search).get('model')
     if (override) return override
   }
-  return '/models/scene-0817.glb'
+  return '/models/site1/scene-site1.glb'
 }
 
 export const CONFIG = {
@@ -41,7 +41,7 @@ export const CONFIG = {
   screenVideo: {
     url: '/videos/enter-screen.mp4',
     material: '1屏',
-    vFlip: true, // 该面板 UV 上下颠倒，视频需垂直翻转
+    startTime: 0,
     maxVolume: 0.9,
     fullVolumeDistance: 4, // 距离内满音量
     muteDistance: 18, // 距离外静音

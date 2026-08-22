@@ -9,8 +9,6 @@ import {
   LOCAL_ANCHORS,
   roomToWorld,
   MODEL_PLINTH_HALF,
-  getHallCanonicalCenter,
-  projectHallLayoutToWorldPosition,
 } from '../data/halls.js'
 import {
   COLLISION_STEP,
