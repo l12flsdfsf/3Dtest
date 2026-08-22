@@ -144,7 +144,7 @@ export function makeRectangularMeasureJunctions({
 // yBottom/yTop: 暗角的竖向范围。
 // 墙面收集 = 材质名命中 ∪ fallbackMeshFilter 几何命中；fallback 命中的墙面
 // 会在换装时对当前所有材质打 shader（不挑材质名），兼容后续 JSON 换材质名。
-function getCornerOcclusionState(
+export function getCornerOcclusionState(
   scene,
   hallEntry,
   materialNames,
@@ -171,7 +171,13 @@ function getCornerOcclusionState(
   }
 }
 
-function applyCornerOcclusion(material, state, layerSeamTolerance) {
+function applyCornerOcclusion(
+  material,
+  state,
+  layerSeamTolerance,
+  cornerRadius,
+  cornerStrength,
+) {
   const shadowMaterial = material.clone()
   shadowMaterial.onBeforeCompile = (shader) => {
     const junctions = [...state.junctions]
@@ -181,8 +187,8 @@ function applyCornerOcclusion(material, state, layerSeamTolerance) {
     shader.uniforms.hallCornerVertical = {
       value: new THREE.Vector2(state.yBottom, state.yTop),
     }
-    shader.uniforms.hallCornerRadius = { value: CORNER_RADIUS }
-    shader.uniforms.hallCornerStrength = { value: CORNER_STRENGTH }
+    shader.uniforms.hallCornerRadius = { value: cornerRadius }
+    shader.uniforms.hallCornerStrength = { value: cornerStrength }
     shader.uniforms.hallCornerLayerTolerance = { value: layerSeamTolerance }
     // 顶部淡出按厅可配:关怀厅顶上有灯,留出空档;其余厅墙直通天花,收窄淡出
     shader.uniforms.hallCornerFadeOut = { value: state.verticalFadeOut ?? VERTICAL_FADE_OUT }
@@ -296,6 +302,8 @@ export function HallCornerShadows({
   meshFilter = null,
   fallbackMeshFilter = null,
   layerSeamTolerance = 0,
+  cornerRadius = CORNER_RADIUS,
+  cornerStrength = CORNER_STRENGTH,
 }) {
   const state = useMemo(
     () =>
@@ -325,7 +333,13 @@ export function HallCornerShadows({
         const shadowMaterials = originalMaterials.map((material) => {
           if (!patchAllMaterials && !wallMaterialNames.includes(material?.name)) return material
           if (!material?.clone) return material
-          const shadowMaterial = applyCornerOcclusion(material, state, layerSeamTolerance)
+          const shadowMaterial = applyCornerOcclusion(
+            material,
+            state,
+            layerSeamTolerance,
+            cornerRadius,
+            cornerStrength,
+          )
           disposableMaterials.push(shadowMaterial)
           return shadowMaterial
         })
@@ -368,7 +382,7 @@ export function HallCornerShadows({
         disposableMaterials.forEach((material) => material.dispose())
       })
     }
-  }, [state, debugKey, layerSeamTolerance, wallMaterialNames])
+  }, [state, debugKey, layerSeamTolerance, cornerRadius, cornerStrength, wallMaterialNames])
 
   return null
 }

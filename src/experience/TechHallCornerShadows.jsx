@@ -19,7 +19,7 @@ export const WALL_MATERIAL_NAMES = ['技术设备厅', '技术展厅海报背板
 // 3) 东侧：同样打（深打收层），命中按值聚簇——最靠内的簇是柱面，更远的簇是
 //    凹墙段、缝取簇内最外层，再从凹墙跟前 (凹墙x-0.3) 沿 ±z 补两条射线找柱子回转面；
 // 4) 每条凹角缝记为 (缝x, 缝z, x朝向, z朝向)，朝向=房间在缝的哪一侧（±1）。
-function measureJunctions(meshes, fallbackBox, hallEntry) {
+export function measureTechHallJunctions(meshes, fallbackBox, hallEntry) {
   const raycaster = new THREE.Raycaster()
   raycaster.far = 40
   const cx = (hallEntry.worldMinX + hallEntry.worldMaxX) / 2
@@ -131,9 +131,11 @@ export function TechHallCornerShadows({ scene, worldLayout }) {
       scene={scene}
       hallEntry={techHall}
       wallMaterialNames={WALL_MATERIAL_NAMES}
-      measureJunctions={measureJunctions}
+      measureJunctions={measureTechHallJunctions}
       debugKey="__techCornerShadows"
       layerSeamTolerance={0.2}
+      cornerRadius={0.55}
+      cornerStrength={0.4}
     />
   )
 }

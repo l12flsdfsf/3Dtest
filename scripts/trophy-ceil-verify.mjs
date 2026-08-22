@@ -39,7 +39,7 @@ const patched = await page.evaluate(() => {
   window.__gltfScene.traverse((o) => {
     if (!o.isMesh) return
     const mats = Array.isArray(o.material) ? o.material : [o.material]
-    if (!mats.some((m) => m?.onBeforeCompile && m.customProgramCacheKey?.() === 'main-hall-ceiling-edge-v1')) return
+    if (!mats.some((m) => m?.onBeforeCompile && m.customProgramCacheKey?.() === 'main-hall-ceiling-edge-v2')) return
     o.updateWorldMatrix(true, false)
     const box = new THREE.Box3().setFromObject(o)
     rows.push(`${o.name} y:${box.min.y.toFixed(2)}~${box.max.y.toFixed(2)} x:${box.min.x.toFixed(1)}~${box.max.x.toFixed(1)} z:${box.min.z.toFixed(1)}~${box.max.z.toFixed(1)}`)
@@ -47,6 +47,9 @@ const patched = await page.evaluate(() => {
   return rows
 })
 patched.forEach((r) => console.log('patched ceiling:', r))
+
+const lightZones = await page.evaluate(() => window.__mainHallCeilingShadows.lightZones)
+console.log('ceiling light exclusion zones:', JSON.stringify(lightZones))
 
 const shots = [
   { name: 'mid', pos: [-0.4, 1.72, -14.2], look: [-0.4, 4.9, -17] },

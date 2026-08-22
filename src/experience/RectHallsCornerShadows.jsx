@@ -20,9 +20,9 @@ import { MAIN_HALL_MATERIALS } from './MainHallCornerShadows.jsx'
 //   展台/展柜/地板/灯等家具材质不纳入（技术设备厅的教训：不往家具上做暗角）。
 // 顶部:四厅角部无灯,暗带直通天花(topGap=0、淡出收窄)——
 // 关怀厅顶上有灯才留空档,别把那截缺口带到这四厅来
-const RECT_MEASURE = makeRectangularMeasureJunctions({ probeHeight: 1.6, topGap: 0, verticalFadeOut: 0.12 })
+export const RECT_HALL_MEASURE_JUNCTIONS = makeRectangularMeasureJunctions({ probeHeight: 1.6, topGap: 0, verticalFadeOut: 0.12 })
 
-const RECT_HALLS = [
+export const RECT_HALLS = [
   { id: 'broadcast', wallMaterialNames: ['广播厅', '广播厅金属'], debugKey: '__broadcastCornerShadows' },
   { id: 'tv', wallMaterialNames: ['电视厅', '电视厅海报版'], debugKey: '__tvCornerShadows' },
   { id: 'cinema', wallMaterialNames: ['电影厅', '电影厅海豹板'], debugKey: '__cinemaCornerShadows' },
@@ -51,7 +51,7 @@ const FOREIGN_HALL_MATERIALS = new Set([
   '白墙',
 ])
 
-function makeBoundaryWallFilter(hallEntry) {
+export function makeBoundaryWallFilter(hallEntry) {
   if (!hallEntry) return null
 
   return function isBoundaryWall(object) {
@@ -99,9 +99,11 @@ function RectHallCornerShadow({ hall, hallEntry, scene }) {
       scene={scene}
       hallEntry={hallEntry}
       wallMaterialNames={hall.wallMaterialNames}
-      measureJunctions={RECT_MEASURE}
+      measureJunctions={RECT_HALL_MEASURE_JUNCTIONS}
       debugKey={hall.debugKey}
       fallbackMeshFilter={fallbackMeshFilter}
+      cornerRadius={0.55}
+      cornerStrength={0.4}
     />
   )
 }

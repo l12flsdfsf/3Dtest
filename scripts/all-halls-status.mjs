@@ -65,7 +65,7 @@ const shot = async (toggleKey, name, pose) => {
   await page.evaluate((k) => window[k].toggle(), toggleKey)
 }
 await shot('__mainHallCornerShadows', 'mainstep', { pos: [-6.5, 1.7, 20.5], look: [-9.7, 2.2, 18.6] })
-await shot('__mainHallCornerShadows', 'mainceil', { pos: [0, 1.7, -10], look: [0, 4.9, -17] })
+await shot('__mainHallCeilingShadows', 'mainceil', { pos: [0, 1.7, -10], look: [0, 4.9, -17] })
 
 const diffPage = await browser.newPage({ viewport: { width: 400, height: 300 } })
 for (const name of ['mainstep', 'mainceil']) {

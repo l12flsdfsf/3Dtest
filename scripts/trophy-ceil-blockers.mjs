@@ -15,6 +15,35 @@ await page.waitForTimeout(2500)
 const rows = await page.evaluate(() => {
   const THREE = window.__THREE
   const out = []
+  const readWorldVertex = (position, index, object) =>
+    new THREE.Vector3().fromBufferAttribute(position, index).applyMatrix4(object.matrixWorld)
+  const mergeFootprints = (boxes, gap = 0.04) => {
+    const merged = boxes.map((box) => ({ ...box }))
+    let changed = true
+    while (changed) {
+      changed = false
+      outer: for (let i = 0; i < merged.length; i += 1) {
+        for (let j = i + 1; j < merged.length; j += 1) {
+          const a = merged[i]
+          const b = merged[j]
+          if (
+            a.maxX < b.minX - gap ||
+            b.maxX < a.minX - gap ||
+            a.maxZ < b.minZ - gap ||
+            b.maxZ < a.minZ - gap
+          ) continue
+          a.minX = Math.min(a.minX, b.minX)
+          a.maxX = Math.max(a.maxX, b.maxX)
+          a.minZ = Math.min(a.minZ, b.minZ)
+          a.maxZ = Math.max(a.maxZ, b.maxZ)
+          merged.splice(j, 1)
+          changed = true
+          break outer
+        }
+      }
+    }
+    return merged
+  }
   window.__gltfScene.traverse((o) => {
     if (!o.isMesh) return
     const mats = Array.isArray(o.material) ? o.material : [o.material]
@@ -25,15 +54,47 @@ const rows = await page.evaluate(() => {
     if (box.min.z > -14) return // 只要北墙附近
     const center = box.getCenter(new THREE.Vector3())
     const size = box.getSize(new THREE.Vector3())
+    const position = o.geometry?.attributes?.position
+    const index = o.geometry?.index
+    const footprints = []
+    if (position) {
+      const triangleCount = index ? index.count / 3 : position.count / 3
+      for (let triangle = 0; triangle < triangleCount; triangle += 1) {
+        const ia = index ? index.getX(triangle * 3) : triangle * 3
+        const ib = index ? index.getX(triangle * 3 + 1) : triangle * 3 + 1
+        const ic = index ? index.getX(triangle * 3 + 2) : triangle * 3 + 2
+        const points = [
+          readWorldVertex(position, ia, o),
+          readWorldVertex(position, ib, o),
+          readWorldVertex(position, ic, o),
+        ]
+        if (Math.max(...points.map((point) => point.y)) < 5.2) continue
+        footprints.push({
+          minX: Math.min(...points.map((point) => point.x)),
+          maxX: Math.max(...points.map((point) => point.x)),
+          minZ: Math.min(...points.map((point) => point.z)),
+          maxZ: Math.max(...points.map((point) => point.z)),
+        })
+      }
+    }
     out.push({
       mesh: o.name.slice(0, 30),
       mat: mats.map((m) => m?.name).join('|'),
       pos: [center.x, center.y, center.z].map((v) => +v.toFixed(2)),
       size: [size.x, size.y, size.z].map((v) => +v.toFixed(2)),
+      footprints: mergeFootprints(footprints).map((footprint) => [
+        footprint.minX,
+        footprint.maxX,
+        footprint.minZ,
+        footprint.maxZ,
+      ].map((v) => +v.toFixed(2))),
     })
   })
   return out
 })
-for (const r of rows) console.log(`${r.mesh} [${r.mat}] pos=${r.pos.join(',')} size=${r.size.join(',')}`)
+for (const r of rows) {
+  console.log(`${r.mesh} [${r.mat}] pos=${r.pos.join(',')} size=${r.size.join(',')}`)
+  r.footprints.forEach((box) => console.log(`  footprint x[${box[0]},${box[1]}] z[${box[2]},${box[3]}]`))
+}
 console.log('total', rows.length)
 await browser.close()

@@ -16,7 +16,7 @@ export const WALL_MATERIAL_NAMES = ['关怀厅', '关怀厅板']
 // - 门墙（东 x=-10.27）中段是门洞（z≈14.5~18），穿洞射线会飞到走廊对面
 //   展望厅的玻璃——量法的超距过滤兜底（厅内东北角有高家具，min/max 会误取）；
 // - 可行走边界 worldMaxX=-12.19 比真门墙（-10.27）内收 ~2m，别拿边界当墙。
-const MEASURE_JUNCTIONS = makeRectangularMeasureJunctions({ probeHeight: 2.6 })
+export const CARE_HALL_MEASURE_JUNCTIONS = makeRectangularMeasureJunctions({ probeHeight: 2.6 })
 
 export function CareHallCornerShadows({ scene, worldLayout }) {
   const careHall = worldLayout?.halls?.find((hall) => hall.id === 'care')
@@ -26,8 +26,10 @@ export function CareHallCornerShadows({ scene, worldLayout }) {
       scene={scene}
       hallEntry={careHall}
       wallMaterialNames={WALL_MATERIAL_NAMES}
-      measureJunctions={MEASURE_JUNCTIONS}
+      measureJunctions={CARE_HALL_MEASURE_JUNCTIONS}
       debugKey="__careCornerShadows"
+      cornerRadius={0.55}
+      cornerStrength={0.4}
     />
   )
 }

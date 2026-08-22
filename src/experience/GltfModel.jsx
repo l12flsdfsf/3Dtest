@@ -12,6 +12,7 @@ import { TechHallCornerShadows } from './TechHallCornerShadows.jsx'
 import { CareHallCornerShadows } from './CareHallCornerShadows.jsx'
 import { MainHallCornerShadows } from './MainHallCornerShadows.jsx'
 import { RectHallsCornerShadows } from './RectHallsCornerShadows.jsx'
+import { SixHallsCeilingEdgeShadows } from './SixHallsCeilingCornerShadows.jsx'
 
 function listMaterialNames(material) {
   if (!material) return []
@@ -441,6 +442,28 @@ function suppressEnvReflectionOnEmissivePanels(scene) {
   })
   if (count) console.info(`[gltf] 已关闭 ${count} 处自发光面板的环境反射`)
   return count
+}
+
+// 源 GLB 的大厅地板 roughness=0，会把入口方向的环境高光压成大片白色亮斑。
+// 只提高该命名材质的粗糙度，保留原地板纹理、导视线和全厅照明。
+function softenMainHallFloorReflection(scene) {
+  const adjusted = new Set()
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    for (const material of materials) {
+      if (!material || material.name !== '大厅地板' || adjusted.has(material)) continue
+      material.roughness = Math.max(material.roughness ?? 0, 0.4)
+      material.needsUpdate = true
+      adjusted.add(material)
+    }
+  })
+
+  if (adjusted.size) {
+    console.info(`[lighting] softened reflections on ${adjusted.size} main-hall floor material(s)`)
+  }
+  return adjusted.size
 }
 
 const UNLIT_PICTURE_MATERIAL = 'unlitPicturePanel'
@@ -1367,6 +1390,7 @@ export function GltfModel({
     fixTechDeviceLostMaterials(scene)
     makePicturePanelsUnlit(scene)
     suppressEnvReflectionOnEmissivePanels(scene)
+    softenMainHallFloorReflection(scene)
     suppressTrophyEnvReflection(scene)
     enableSceneShadows(scene)
     if (typeof window !== 'undefined') window.__gltfScene = scene // 调试用：自动化测试检查场景网格
@@ -1797,6 +1821,7 @@ export function GltfModel({
       <TechHallCornerShadows scene={scene} worldLayout={worldLayout} />
       <CareHallCornerShadows scene={scene} worldLayout={worldLayout} />
       <RectHallsCornerShadows scene={scene} worldLayout={worldLayout} />
+      <SixHallsCeilingEdgeShadows scene={scene} worldLayout={worldLayout} />
       <MainHallCornerShadows scene={scene} />
       {screenVideoPlane ? (
         <mesh
