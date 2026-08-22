@@ -5,7 +5,8 @@ import { HallCornerShadows, makeRectangularMeasureJunctions } from './HallCorner
 // - 关怀厅板：pCube31 展板带（南/北墙中段 y 1.22~4.21，比结构墙面凸出 ~8cm）
 // 不能碰 白墙（贯穿全馆的外壳）、玻璃/展柜材质（墙前一圈展柜）与照片材质
 // （材质.NNN 系列，照片不压暗）。
-const WALL_MATERIAL_NAMES = ['关怀厅', '关怀厅板']
+// 导出给 RectHallsCornerShadows 的边界 fallback 做跨厅排除。
+export const WALL_MATERIAL_NAMES = ['关怀厅', '关怀厅板']
 
 // 与技术设备厅及其余四厅的差异（实测 scene-0817）：
 // - 四个角都是普通矩形角——没有柱子、没有凹墙，量 4 条缝就够（共用

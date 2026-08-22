@@ -1,6 +1,9 @@
 import { useMemo } from 'react'
 import * as THREE from 'three'
 import { HallCornerShadows, makeRectangularMeasureJunctions } from './HallCornerShadows.jsx'
+import { WALL_MATERIAL_NAMES as TECH_HALL_WALL_MATERIALS } from './TechHallCornerShadows.jsx'
+import { WALL_MATERIAL_NAMES as CARE_HALL_WALL_MATERIALS } from './CareHallCornerShadows.jsx'
+import { MAIN_HALL_MATERIALS } from './MainHallCornerShadows.jsx'
 
 // 其余四厅的墙角暗角（实测 scene-0817）：广播/电视/电影/展望都是无柱矩形
 // 四角——各轴墙面命中都是单簇，没有技术设备厅那种柱面+凹墙双簇（21.56/22.58），
@@ -36,10 +39,25 @@ const MIN_WALL_HEIGHT = 1.8
 const MIN_WALL_TOP = 2.8
 const MIN_WALL_SPAN = 1.2
 
+// 厅与厅相邻（关怀↔广播共享 z≈10.3 墙、技术设备↔展望边界重叠、大厅外壳
+// 贴每个厅的边），本组件挂载在 Tech/Care 之后——fallback 若把这些厅已按
+// 材质认领的墙也收进来，后打的 clone 会覆盖它们的 junctions，表现为那些厅
+// 的墙角暗角消失。fallback 只兜「材质没被任何厅认领」的墙。白墙是贯穿
+// 全馆的外壳，任何厅都不能碰（技术设备厅的教训）。
+const FOREIGN_HALL_MATERIALS = new Set([
+  ...TECH_HALL_WALL_MATERIALS,
+  ...CARE_HALL_WALL_MATERIALS,
+  ...MAIN_HALL_MATERIALS,
+  '白墙',
+])
+
 function makeBoundaryWallFilter(hallEntry) {
   if (!hallEntry) return null
 
   return function isBoundaryWall(object) {
+    const materials = Array.isArray(object.material) ? object.material : [object.material]
+    if (materials.some((material) => FOREIGN_HALL_MATERIALS.has(material?.name))) return false
+
     const box = new THREE.Box3().setFromObject(object)
     if (box.isEmpty()) return false
 

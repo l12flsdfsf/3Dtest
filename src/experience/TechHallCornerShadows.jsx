@@ -5,7 +5,8 @@ import { HallCornerShadows, MAX_JUNCTIONS } from './HallCornerShadows.jsx'
 // - 技术设备厅：pCube172 墙体（含下段与檐口带 pCube172002）
 // - 技术展厅海报背板：pCube176 主墙面（y 1.45~4.87）
 // 不能碰 白墙（polySurface83 是贯穿全馆的外壳，会影响其它厅的墙亮度）。
-const WALL_MATERIAL_NAMES = ['技术设备厅', '技术展厅海报背板']
+// 导出给 RectHallsCornerShadows 的边界 fallback 做跨厅排除。
+export const WALL_MATERIAL_NAMES = ['技术设备厅', '技术展厅海报背板']
 
 // 这个厅的墙角缝不止 4 条，不能用单一矩形描述（实测 scene-0817）：
 // - 门口墙（西 x=10.27）没有柱子，中段还是门洞；

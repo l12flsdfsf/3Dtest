@@ -2,7 +2,8 @@ import { useEffect, useMemo } from 'react'
 import * as THREE from 'three'
 import { HallCornerShadows, MAX_JUNCTIONS, findWallMeshes } from './HallCornerShadows.jsx'
 
-const MAIN_HALL_MATERIALS = ['\u5927\u5385']
+// \u5bfc\u51fa\u7ed9 RectHallsCornerShadows \u7684\u8fb9\u754c fallback \u505a\u8de8\u5385\u6392\u9664\u3002
+export const MAIN_HALL_MATERIALS = ['\u5927\u5385']
 const MAIN_HALL_BOUNDS_MATERIALS = MAIN_HALL_MATERIALS
 const MAIN_HALL_EDGE_MATERIALS = [
   '\u5927\u5385',
