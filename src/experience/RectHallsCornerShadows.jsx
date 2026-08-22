@@ -1,3 +1,5 @@
+import { useMemo } from 'react'
+import * as THREE from 'three'
 import { HallCornerShadows, makeRectangularMeasureJunctions } from './HallCornerShadows.jsx'
 
 // 其余四厅的墙角暗角（实测 scene-0817）：广播/电视/电影/展望都是无柱矩形
@@ -24,19 +26,83 @@ const RECT_HALLS = [
   { id: 'future', wallMaterialNames: ['展望厅'], debugKey: '__futureCornerShadows' },
 ]
 
+// 材质名匹配不上时的几何 fallback：按厅边界（worldLayout 的可行走边界外扩
+// HALL_BOUND_PADDING）收集贴边的高墙面——高度 ≥1.8m、顶 ≥2.8m、跨度 ≥1.2m，
+// 且包围盒碰厅某一侧边界。fallback 命中的墙面直接给当前材质打 shader，
+// 后续 JSON 换材质名也不受影响。
+const HALL_BOUND_PADDING = 0.35
+const WALL_BOUNDARY_TOLERANCE = 0.55
+const MIN_WALL_HEIGHT = 1.8
+const MIN_WALL_TOP = 2.8
+const MIN_WALL_SPAN = 1.2
+
+function makeBoundaryWallFilter(hallEntry) {
+  if (!hallEntry) return null
+
+  return function isBoundaryWall(object) {
+    const box = new THREE.Box3().setFromObject(object)
+    if (box.isEmpty()) return false
+
+    if (
+      box.max.x < hallEntry.worldMinX - HALL_BOUND_PADDING ||
+      box.min.x > hallEntry.worldMaxX + HALL_BOUND_PADDING ||
+      box.max.z < hallEntry.worldMinZ - HALL_BOUND_PADDING ||
+      box.min.z > hallEntry.worldMaxZ + HALL_BOUND_PADDING
+    ) {
+      return false
+    }
+
+    const size = box.getSize(new THREE.Vector3())
+    if (size.y < MIN_WALL_HEIGHT || box.max.y < MIN_WALL_TOP) return false
+    if (Math.max(size.x, size.z) < MIN_WALL_SPAN) return false
+
+    const touchesWest =
+      box.min.x <= hallEntry.worldMinX + WALL_BOUNDARY_TOLERANCE &&
+      box.max.x >= hallEntry.worldMinX - WALL_BOUNDARY_TOLERANCE
+    const touchesEast =
+      box.min.x <= hallEntry.worldMaxX + WALL_BOUNDARY_TOLERANCE &&
+      box.max.x >= hallEntry.worldMaxX - WALL_BOUNDARY_TOLERANCE
+    const touchesSouth =
+      box.min.z <= hallEntry.worldMinZ + WALL_BOUNDARY_TOLERANCE &&
+      box.max.z >= hallEntry.worldMinZ - WALL_BOUNDARY_TOLERANCE
+    const touchesNorth =
+      box.min.z <= hallEntry.worldMaxZ + WALL_BOUNDARY_TOLERANCE &&
+      box.max.z >= hallEntry.worldMaxZ - WALL_BOUNDARY_TOLERANCE
+
+    return touchesWest || touchesEast || touchesSouth || touchesNorth
+  }
+}
+
+function RectHallCornerShadow({ hall, hallEntry, scene }) {
+  const fallbackMeshFilter = useMemo(() => makeBoundaryWallFilter(hallEntry), [hallEntry])
+
+  return (
+    <HallCornerShadows
+      scene={scene}
+      hallEntry={hallEntry}
+      wallMaterialNames={hall.wallMaterialNames}
+      measureJunctions={RECT_MEASURE}
+      debugKey={hall.debugKey}
+      fallbackMeshFilter={fallbackMeshFilter}
+    />
+  )
+}
+
 export function RectHallsCornerShadows({ scene, worldLayout }) {
   return (
     <>
-      {RECT_HALLS.map((hall) => (
-        <HallCornerShadows
-          key={hall.id}
-          scene={scene}
-          hallEntry={worldLayout?.halls?.find((entry) => entry.id === hall.id)}
-          wallMaterialNames={hall.wallMaterialNames}
-          measureJunctions={RECT_MEASURE}
-          debugKey={hall.debugKey}
-        />
-      ))}
+      {RECT_HALLS.map((hall) => {
+        const hallEntry = worldLayout?.halls?.find((entry) => entry.id === hall.id)
+
+        return (
+          <RectHallCornerShadow
+            key={hall.id}
+            scene={scene}
+            hall={hall}
+            hallEntry={hallEntry}
+          />
+        )
+      })}
     </>
   )
 }

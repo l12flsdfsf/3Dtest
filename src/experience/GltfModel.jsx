@@ -11,6 +11,7 @@ import { findMaterialPicture, findPictureTexture, textureToPhoto } from './pictu
 import { TechHallCornerShadows } from './TechHallCornerShadows.jsx'
 import { CareHallCornerShadows } from './CareHallCornerShadows.jsx'
 import { MainHallCornerShadows } from './MainHallCornerShadows.jsx'
+import { RectHallsCornerShadows } from './RectHallsCornerShadows.jsx'
 
 function listMaterialNames(material) {
   if (!material) return []
@@ -1382,6 +1383,7 @@ export function GltfModel({
       />
       <TechHallCornerShadows scene={scene} worldLayout={worldLayout} />
       <CareHallCornerShadows scene={scene} worldLayout={worldLayout} />
+      <RectHallsCornerShadows scene={scene} worldLayout={worldLayout} />
       <MainHallCornerShadows scene={scene} />
       {hoverPicture ? (
         <PictureHoverHint

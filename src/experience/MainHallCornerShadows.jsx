@@ -37,6 +37,12 @@ const FLOOR_STRIP_WIDTH = 0.42
 const CEILING_EDGE_RADIUS = 0.38
 const CEILING_EDGE_STRENGTH = 0.085
 const CEILING_MAX_LINES = 24
+// 荣誉展区（北墙奖杯墙 / 东墙荣誉篇章 + 西墙荣誉墙）天花不压暗：展陈墙面
+// 自带照明，叠上天花暗带会显脏。按网格/材质名圈出展区 xz 范围，整条剔除命中
+// 的墙顶线。西墙「荣誉墙」标题是墙身贴图、没有独立网格名，但与东墙「荣誉
+// 篇章」关于大厅中线对称，故每个展区同时取其 x 镜像。
+const HONOR_AREA_PATTERN = /荣誉篇章|奖杯/
+const HONOR_AREA_MARGIN = 0.2
 const EDGE_PLANE_TOLERANCE = 0.18
 
 const _a = new THREE.Vector3()
@@ -110,11 +116,13 @@ function readWorldVertex(position, index, object, target) {
   return target.applyMatrix4(object.matrixWorld)
 }
 
-function addPlane(clusters, plane) {
+function addPlane(clusters, plane, mergeSpanGap = Infinity) {
   const existing = clusters.find(
     (cluster) =>
       cluster.sign === plane.sign &&
-      Math.abs(cluster.coord - plane.coord) <= PLANE_COORD_TOLERANCE,
+      Math.abs(cluster.coord - plane.coord) <= PLANE_COORD_TOLERANCE &&
+      plane.spanMin <= cluster.spanMax + mergeSpanGap &&
+      plane.spanMax >= cluster.spanMin - mergeSpanGap,
   )
 
   if (!existing) {
@@ -136,6 +144,7 @@ function collectWallPlanes(
     minVerticalSpan = MIN_VERTICAL_SPAN,
     minHorizontalSpan = MIN_HORIZONTAL_SPAN,
     minYMax = 0.1,
+    mergeSpanGap = Infinity,
   } = {},
 ) {
   const xPlanes = []
@@ -180,23 +189,31 @@ function collectWallPlanes(
       const zSpan = zMax - zMin
 
       if (xSpan <= PLANE_THICKNESS && zSpan >= minHorizontalSpan && Math.abs(_normal.x) > 0.55) {
-        addPlane(xPlanes, {
-          coord: (xMin + xMax) / 2,
-          spanMin: zMin,
-          spanMax: zMax,
-          yMin,
-          yMax,
-          sign: Math.sign(_normal.x),
-        })
+        addPlane(
+          xPlanes,
+          {
+            coord: (xMin + xMax) / 2,
+            spanMin: zMin,
+            spanMax: zMax,
+            yMin,
+            yMax,
+            sign: Math.sign(_normal.x),
+          },
+          mergeSpanGap,
+        )
       } else if (zSpan <= PLANE_THICKNESS && xSpan >= minHorizontalSpan && Math.abs(_normal.z) > 0.55) {
-        addPlane(zPlanes, {
-          coord: (zMin + zMax) / 2,
-          spanMin: xMin,
-          spanMax: xMax,
-          yMin,
-          yMax,
-          sign: Math.sign(_normal.z),
-        })
+        addPlane(
+          zPlanes,
+          {
+            coord: (zMin + zMax) / 2,
+            spanMin: xMin,
+            spanMax: xMax,
+            yMin,
+            yMax,
+            sign: Math.sign(_normal.z),
+          },
+          mergeSpanGap,
+        )
       }
     }
   }
@@ -215,7 +232,10 @@ function hasJunction(junctions, x, z, fx, fz) {
 }
 
 function measureMainHallJunctions(meshes, fallbackBox) {
-  const { xPlanes, zPlanes } = collectWallPlanes(meshes)
+  // 门洞侧壁（前墙 z≈24.7 上的 x±3.87 短垛，仅 ~1.2m 长）与墙身的交线不是
+  // 房间墙角——按角落缝压暗会在门洞两侧各拉出一道通高竖向暗带。把量缝的
+  // 最小水平跨度提到 1.5m，短垛就进不了交线求交（真实墙角都在 5m 以上）。
+  const { xPlanes, zPlanes } = collectWallPlanes(meshes, { minHorizontalSpan: 1.5 })
   const junctions = []
 
   for (const xPlane of xPlanes) {
@@ -231,6 +251,57 @@ function measureMainHallJunctions(meshes, fallbackBox) {
       if (hasJunction(junctions, xPlane.coord, zPlane.coord, xPlane.sign, zPlane.sign)) continue
 
       junctions.push([xPlane.coord, zPlane.coord, xPlane.sign, zPlane.sign])
+    }
+  }
+
+  // 墙身台阶转角：荣誉墙与关怀厅门墙一类的前后错位处有一块 0.3~1.5m 的短
+  // 回头面——太短进不了上面的求交，台阶的凸边/凹角便没有暗带，墙面显得
+  // 「悬空」。细扫描回头面并与长墙配对补缝：从回头面朝向一侧起步的长墙与
+  // 回头面成凸边（一条缝管两面）；回头面到头处的长墙成凹角（两条缝各管一面）。
+  // mergeSpanGap 让东西两侧共面的回头面不跨厅合并成一条长缝。
+  const fine = collectWallPlanes(meshes, {
+    minVerticalSpan: 1.2,
+    minHorizontalSpan: 0.25,
+    mergeSpanGap: 0.3,
+  })
+  for (const returnPlane of fine.zPlanes) {
+    const returnLength = returnPlane.spanMax - returnPlane.spanMin
+    if (returnLength < 0.25 || returnLength >= 1.5) continue
+
+    for (const xPlane of xPlanes) {
+      const yOverlap = Math.min(xPlane.yMax, returnPlane.yMax) - Math.max(xPlane.yMin, returnPlane.yMin)
+      if (yOverlap < 1.2) continue
+      if (
+        xPlane.coord < returnPlane.spanMin - SPAN_TOLERANCE ||
+        xPlane.coord > returnPlane.spanMax + SPAN_TOLERANCE
+      ) continue
+
+      const startsAtReturn = Math.abs(returnPlane.coord - xPlane.spanMin) <= SPAN_TOLERANCE
+      const endsAtReturn = Math.abs(returnPlane.coord - xPlane.spanMax) <= SPAN_TOLERANCE
+      const withinWallSpan =
+        returnPlane.coord >= xPlane.spanMin - SPAN_TOLERANCE &&
+        returnPlane.coord <= xPlane.spanMax + SPAN_TOLERANCE
+      const candidates = []
+      // 凸边：长墙从回头面朝向的一侧起步（回头面 sign>0 朝 +z，则起步于 spanMin），
+      // 且回头面落在长墙 span 上
+      if (withinWallSpan && (returnPlane.sign > 0 ? startsAtReturn : endsAtReturn)) {
+        candidates.push([xPlane.coord, returnPlane.coord, xPlane.sign, returnPlane.sign])
+      }
+      // 凹角：长墙面正是回头面的到头处（回头面 span 端 == 长墙 coord）。
+      // 长墙自身可能差半米才到回头面（如关怀厅门口那段被金属门套包住），
+      // 故这里不要求回头面落在长墙 span 内，只看端点对齐与竖向搭接。
+      if (
+        Math.abs(xPlane.coord - returnPlane.spanMin) <= SPAN_TOLERANCE ||
+        Math.abs(xPlane.coord - returnPlane.spanMax) <= SPAN_TOLERANCE
+      ) {
+        candidates.push(
+          [xPlane.coord, returnPlane.coord, -xPlane.sign, returnPlane.sign],
+          [xPlane.coord, returnPlane.coord, xPlane.sign, -returnPlane.sign],
+        )
+      }
+      for (const [x, z, fx, fz] of candidates) {
+        if (!hasJunction(junctions, x, z, fx, fz)) junctions.push([x, z, fx, fz])
+      }
     }
   }
 
@@ -257,6 +328,49 @@ function measureMainHallJunctions(meshes, fallbackBox) {
 
 function planeLength(plane) {
   return plane.spanMax - plane.spanMin
+}
+
+function collectCeilingExclusionZones(scene) {
+  const zones = []
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    const materialNames = (Array.isArray(object.material) ? object.material : [object.material]).map(
+      (material) => material?.name,
+    )
+    const names = [object.name, object.userData?.name, ...materialNames]
+    if (!names.some((name) => typeof name === 'string' && HONOR_AREA_PATTERN.test(name))) return
+
+    object.updateWorldMatrix(true, false)
+    const box = new THREE.Box3().setFromObject(object)
+    if (box.isEmpty()) return
+
+    const zone = {
+      minX: box.min.x - HONOR_AREA_MARGIN,
+      maxX: box.max.x + HONOR_AREA_MARGIN,
+      minZ: box.min.z - HONOR_AREA_MARGIN,
+      maxZ: box.max.z + HONOR_AREA_MARGIN,
+    }
+    zones.push(zone)
+    zones.push({ ...zone, minX: -zone.maxX, maxX: -zone.minX })
+  })
+  return zones
+}
+
+// 墙顶线是「固定 coord + 沿墙 span」的线段：coord 落进展区带内且 span 与展区
+// 有交叠，即认定这条线沿荣誉展区墙面走，天花压暗整条剔除。
+function planeHitsZone(plane, axis, zone) {
+  const inCoordRange =
+    axis === 'x'
+      ? plane.coord >= zone.minX && plane.coord <= zone.maxX
+      : plane.coord >= zone.minZ && plane.coord <= zone.maxZ
+  const zoneSpanMin = axis === 'x' ? zone.minZ : zone.minX
+  const zoneSpanMax = axis === 'x' ? zone.maxZ : zone.maxX
+  return inCoordRange && plane.spanMax >= zoneSpanMin && plane.spanMin <= zoneSpanMax
+}
+
+function filterPlanesOutsideZones(planes, axis, zones) {
+  if (!zones.length) return planes
+  return planes.filter((plane) => !zones.some((zone) => planeHitsZone(plane, axis, zone)))
 }
 
 function planesOverlap(a, b) {
@@ -323,18 +437,53 @@ function collectEdgeOverlayState(scene) {
       planeLength(plane) >= EDGE_OVERLAY_MIN_LENGTH &&
       matchesTallPlane(plane, tallZ),
   )
-  const topX = shallow.xPlanes.filter(
+  // 墙身台阶的回头面太短（<EDGE_OVERLAY_MIN_LENGTH），上面的墙顶线收集收不进，
+  // 台阶正面与天花的交界就会缺一段压暗（如关怀厅门口台阶上方）。细扫描补上
+  // 回头面的墙顶线，并把端头对齐的相邻长墙线沿 z 延长到回头面处——长墙与
+  // 回头面之间常有半米左右被金属门套包住的墙段，同样没有墙顶线。
+  const returnTops = collectWallPlanes(edgeMeshes, {
+    minVerticalSpan: 0.02,
+    minHorizontalSpan: 0.25,
+    minYMax: -0.05,
+    mergeSpanGap: 0.3,
+  }).zPlanes.filter(
     (plane) =>
       plane.yMax >= topMinY &&
-      planeLength(plane) >= EDGE_OVERLAY_MIN_LENGTH &&
-      matchesTallPlane(plane, tallX),
+      // yMin 限高：只收贴地的墙身回头面；天花灯槽/凹龛的端头小面悬在
+      // yMin>2 的高处，混进来会把荣誉墙/荣誉篇章的天花重新压出一条条暗带
+      plane.yMin <= 2.0 &&
+      planeLength(plane) >= 0.25 &&
+      planeLength(plane) < 1.5,
   )
-  const topZ = shallow.zPlanes.filter(
-    (plane) =>
-      plane.yMax >= topMinY &&
-      planeLength(plane) >= EDGE_OVERLAY_MIN_LENGTH &&
-      matchesTallPlane(plane, tallZ),
-  )
+  const returnTopZ = shallow.zPlanes
+    .filter(
+      (plane) =>
+        plane.yMax >= topMinY &&
+        planeLength(plane) >= EDGE_OVERLAY_MIN_LENGTH &&
+        matchesTallPlane(plane, tallZ),
+    )
+    .concat(returnTops)
+
+  const topX = shallow.xPlanes
+    .filter(
+      (plane) =>
+        plane.yMax >= topMinY &&
+        planeLength(plane) >= EDGE_OVERLAY_MIN_LENGTH &&
+        matchesTallPlane(plane, tallX),
+    )
+    .map((plane) => {
+      const bridged = { ...plane }
+      for (const returnTop of returnTops) {
+        const alignsAtMin = Math.abs(plane.coord - returnTop.spanMin) <= 0.55
+        const alignsAtMax = Math.abs(plane.coord - returnTop.spanMax) <= 0.55
+        if (!alignsAtMin && !alignsAtMax) continue
+        bridged.spanMin = Math.min(bridged.spanMin, returnTop.coord)
+        bridged.spanMax = Math.max(bridged.spanMax, returnTop.coord)
+      }
+      return bridged
+    })
+  const topZ = filterPlanesOutsideZones(returnTopZ, 'z', collectCeilingExclusionZones(scene))
+  const topXFiltered = filterPlanesOutsideZones(topX, 'x', collectCeilingExclusionZones(scene))
   const ceilingMeshes = findWallMeshes(scene, MAIN_HALL_MATERIALS, isCeilingSlabMesh)
 
   return {
@@ -342,7 +491,7 @@ function collectEdgeOverlayState(scene) {
     yTop: box.max.y,
     bottomX,
     bottomZ,
-    topX,
+    topX: topXFiltered,
     topZ,
     ceilingMeshes,
   }

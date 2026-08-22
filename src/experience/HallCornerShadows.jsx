@@ -17,12 +17,28 @@ export const VERTICAL_FADE_OUT = 0.35 // 近顶淡出(天花不压暗)
 
 export function findWallMeshes(scene, materialNames, meshFilter = null) {
   const meshes = []
+  const names = materialNames ?? []
 
   scene.traverse((object) => {
     if (!object.isMesh) return
     const materials = Array.isArray(object.material) ? object.material : [object.material]
-    if (!materials.some((material) => materialNames.includes(material?.name))) return
+    if (!materials.some((material) => names.includes(material?.name))) return
     if (meshFilter && !meshFilter(object)) return
+    meshes.push(object)
+  })
+
+  return meshes
+}
+
+// 材质名匹配不上时的几何 fallback：按调用方给的 meshFilter 直接收网格
+function findMeshesByFilter(scene, meshFilter) {
+  const meshes = []
+
+  if (!meshFilter) return meshes
+
+  scene.traverse((object) => {
+    if (!object.isMesh) return
+    if (!meshFilter(object)) return
     meshes.push(object)
   })
 
@@ -126,15 +142,33 @@ export function makeRectangularMeasureJunctions({
 
 // junctions: [(缝x, 缝z, x朝向, z朝向)] 世界坐标,朝向=房间在缝的哪一侧(±1);
 // yBottom/yTop: 暗角的竖向范围。
-function getCornerOcclusionState(scene, hallEntry, materialNames, measureJunctions, meshFilter) {
-  const meshes = findWallMeshes(scene, materialNames, meshFilter)
+// 墙面收集 = 材质名命中 ∪ fallbackMeshFilter 几何命中；fallback 命中的墙面
+// 会在换装时对当前所有材质打 shader（不挑材质名），兼容后续 JSON 换材质名。
+function getCornerOcclusionState(
+  scene,
+  hallEntry,
+  materialNames,
+  measureJunctions,
+  meshFilter,
+  fallbackMeshFilter,
+) {
+  const materialMeshes = findWallMeshes(scene, materialNames, meshFilter)
+  const fallbackMeshes = findMeshesByFilter(scene, fallbackMeshFilter)
+  const fallbackMeshSet = new Set(fallbackMeshes)
+  const meshes = [...new Set([...materialMeshes, ...fallbackMeshes])]
   if (!meshes.length) return null
 
   const box = new THREE.Box3()
   meshes.forEach((mesh) => box.expandByObject(mesh))
   if (box.isEmpty()) return null
 
-  return { meshes, ...measureJunctions(meshes, box, hallEntry) }
+  return {
+    meshes,
+    fallbackMeshSet,
+    materialMeshCount: materialMeshes.length,
+    fallbackMeshCount: fallbackMeshes.length,
+    ...measureJunctions(meshes, box, hallEntry),
+  }
 }
 
 function applyCornerOcclusion(material, state, layerSeamTolerance) {
@@ -260,14 +294,22 @@ export function HallCornerShadows({
   measureJunctions,
   debugKey,
   meshFilter = null,
+  fallbackMeshFilter = null,
   layerSeamTolerance = 0,
 }) {
   const state = useMemo(
     () =>
       scene && hallEntry
-        ? getCornerOcclusionState(scene, hallEntry, wallMaterialNames, measureJunctions, meshFilter)
+        ? getCornerOcclusionState(
+            scene,
+            hallEntry,
+            wallMaterialNames,
+            measureJunctions,
+            meshFilter,
+            fallbackMeshFilter,
+          )
         : null,
-    [scene, hallEntry, wallMaterialNames, measureJunctions, meshFilter],
+    [scene, hallEntry, wallMaterialNames, measureJunctions, meshFilter, fallbackMeshFilter],
   )
 
   useEffect(() => {
@@ -278,8 +320,11 @@ export function HallCornerShadows({
         const originalMaterial = mesh.material
         const originalMaterials = Array.isArray(originalMaterial) ? originalMaterial : [originalMaterial]
         const disposableMaterials = []
+        // fallback 命中的墙面不挑材质名，当前材质全部换装
+        const patchAllMaterials = state.fallbackMeshSet?.has(mesh)
         const shadowMaterials = originalMaterials.map((material) => {
-          if (!wallMaterialNames.includes(material?.name)) return material
+          if (!patchAllMaterials && !wallMaterialNames.includes(material?.name)) return material
+          if (!material?.clone) return material
           const shadowMaterial = applyCornerOcclusion(material, state, layerSeamTolerance)
           disposableMaterials.push(shadowMaterial)
           return shadowMaterial
@@ -304,7 +349,14 @@ export function HallCornerShadows({
       return enabled ? 'on' : 'off'
     }
     if (typeof window !== 'undefined') {
-      window[debugKey] = { toggle, junctions: state.junctions }
+      window[debugKey] = {
+        toggle,
+        junctions: state.junctions,
+        meshCount: state.meshes.length,
+        materialMeshCount: state.materialMeshCount,
+        fallbackMeshCount: state.fallbackMeshCount,
+        mode: state.fallbackMeshCount > 0 ? 'material+geometry' : 'material-name',
+      }
     }
 
     return () => {
