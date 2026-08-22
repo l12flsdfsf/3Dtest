@@ -15,7 +15,7 @@ import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment
 // - 从奖杯A切到奖杯B：先释放A再加载B，内存不叠加；
 // - 重开同一个奖杯会重新加载（走浏览器 HTTP 缓存，无网络往返，仅重新解析）。
 // 这是刻意不缓存换取的：高模单个几十MB解码数据，多奖杯常驻会线性吃内存。
-let current = null // { url, promise, gltf, wrapper, claimed }
+let current = null // { url, promise, gltf, wrapper, claimed, failed }
 
 // 调试用：场景里网格计数
 function countMeshes(root) {
@@ -121,15 +121,21 @@ function useRoomEnvironment() {
   }, [gl, scene])
 }
 
-// url: 高模 GLB 地址；fallbackObject: 低模克隆（加载期间先展示，就绪后替换）。
+export function ExhibitEnvironment() {
+  useRoomEnvironment()
+  return null
+}
+
+// url: 高模 GLB 地址；fallbackObject: 仅在高模加载失败后使用的低模克隆。
 // onStatus: { ready, failed, loaded, total } —— DOM 侧据此显示进度浮层。
 export function HighPolyExhibit({ url, fallbackObject, onStatus }) {
-  useRoomEnvironment()
   const [gltf, setGltf] = useState(null)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let disposed = false
     setGltf(null)
+    setFailed(false)
     const report = (status) => {
       if (typeof window !== 'undefined') window.__highPolyExhibit = { url, ...status } // 调试/自动化测试
       if (!disposed) onStatus?.(status)
@@ -142,7 +148,7 @@ export function HighPolyExhibit({ url, fallbackObject, onStatus }) {
     } else {
       // 换了奖杯（或首次）：先释放上一个，保证单实例驻留
       disposeCurrent()
-      entry = { url, promise: null, gltf: null, wrapper: null, claimed: true }
+      entry = { url, promise: null, gltf: null, wrapper: null, claimed: true, failed: false }
       current = entry
       report({ ready: false, loaded: 0, total: 0 })
       entry.promise = loadHighPolyModel(url, (loaded, total) => {
@@ -155,14 +161,18 @@ export function HighPolyExhibit({ url, fallbackObject, onStatus }) {
             return
           }
           entry.gltf = result
+          entry.failed = false
           report({ ready: true, failed: false })
+          setFailed(false)
           setGltf(result)
         })
         .catch((error) => {
           console.error('[high-poly] 高精度模型加载失败，回退低模', error)
           if (current === entry) {
             entry.gltf = null
+            entry.failed = true
             report({ ready: true, failed: true })
+            setFailed(true)
           }
         })
     }
@@ -170,7 +180,11 @@ export function HighPolyExhibit({ url, fallbackObject, onStatus }) {
     if (entry.gltf) {
       // 复用已在内存里的实例（重开间隙极短的场景）
       report({ ready: true, failed: false })
+      setFailed(false)
       setGltf(entry.gltf)
+    } else if (entry.failed) {
+      report({ ready: true, failed: true })
+      setFailed(true)
     }
 
     return () => {
@@ -200,8 +214,8 @@ export function HighPolyExhibit({ url, fallbackObject, onStatus }) {
   }, [gltf])
 
   if (!wrapper) {
-    // 加载期间（或失败后）：低模克隆占位，画面不空窗
-    return fallbackObject ? <primitive object={fallbackObject} /> : null
+    // Loading is covered by the modal progress UI; only use the low model after a real failure.
+    return failed && fallbackObject ? <primitive object={fallbackObject} /> : null
   }
   return <primitive object={wrapper} />
 }

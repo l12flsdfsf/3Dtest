@@ -163,15 +163,15 @@ export const MESH_EXHIBIT_INFO = {
     highPolyModel: '/models/trophy-15-high.glb',
   },
   'scan-device-honor-2': {
-    title: '老式设备',
+    title: '陶瓷奖杯',
     subtitle: '荣誉展区实物',
-    body: '照片扫描建模的早期设备实物。',
+    body: '奖杯墙陈列的陶瓷杯形荣誉奖杯实物。',
     meshNames: ['mesh_rep_0_ori_repair_quad013'],
   },
   'scan-device-honor-3': {
-    title: '老式设备',
+    title: '金色荣誉奖杯',
     subtitle: '荣誉展区实物',
-    body: '照片扫描建模的早期设备实物。',
+    body: '奖杯墙陈列的金色球形荣誉奖杯实物。',
     meshNames: ['mesh_rep_0_ori_repair_quad014'],
   },
   'gramophone-1': {

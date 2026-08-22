@@ -232,6 +232,18 @@ function hasJunction(junctions, x, z, fx, fz) {
   )
 }
 
+function removeJunctionsAt(junctions, x, z) {
+  for (let index = junctions.length - 1; index >= 0; index -= 1) {
+    const [jx, jz] = junctions[index]
+    if (
+      Math.abs(jx - x) <= PLANE_COORD_TOLERANCE &&
+      Math.abs(jz - z) <= PLANE_COORD_TOLERANCE
+    ) {
+      junctions.splice(index, 1)
+    }
+  }
+}
+
 function measureMainHallJunctions(meshes, fallbackBox) {
   // 门洞侧壁（前墙 z≈24.7 上的 x±3.87 短垛，仅 ~1.2m 长）与墙身的交线不是
   // 房间墙角——按角落缝压暗会在门洞两侧各拉出一道通高竖向暗带。把量缝的
@@ -256,9 +268,9 @@ function measureMainHallJunctions(meshes, fallbackBox) {
   }
 
   // 墙身台阶转角：荣誉墙与关怀厅门墙一类的前后错位处有一块 0.3~1.5m 的短
-  // 回头面——太短进不了上面的求交，台阶的凸边/凹角便没有暗带，墙面显得
-  // 「悬空」。细扫描回头面并与长墙配对补缝：从回头面朝向一侧起步的长墙与
-  // 回头面成凸边（一条缝管两面）；回头面到头处的长墙成凹角（两条缝各管一面）。
+  // 回头面。大厅里的其他长面会让上面的通用求交同时命中台阶两端，所以这里先
+  // 清掉两端已有结果，再只补「长墙从回头面朝内继续」的凹角；反向结束在回头面
+  // 的位置是外凸尖角，保持受光。
   // mergeSpanGap 让东西两侧共面的回头面不跨厅合并成一条长缝。
   const fine = collectWallPlanes(meshes, {
     minVerticalSpan: 1.2,
@@ -279,30 +291,15 @@ function measureMainHallJunctions(meshes, fallbackBox) {
 
       const startsAtReturn = Math.abs(returnPlane.coord - xPlane.spanMin) <= SPAN_TOLERANCE
       const endsAtReturn = Math.abs(returnPlane.coord - xPlane.spanMax) <= SPAN_TOLERANCE
-      const withinWallSpan =
-        returnPlane.coord >= xPlane.spanMin - SPAN_TOLERANCE &&
-        returnPlane.coord <= xPlane.spanMax + SPAN_TOLERANCE
-      const candidates = []
-      // 凸边：长墙从回头面朝向的一侧起步（回头面 sign>0 朝 +z，则起步于 spanMin），
-      // 且回头面落在长墙 span 上
-      if (withinWallSpan && (returnPlane.sign > 0 ? startsAtReturn : endsAtReturn)) {
-        candidates.push([xPlane.coord, returnPlane.coord, xPlane.sign, returnPlane.sign])
-      }
-      // 凹角：长墙面正是回头面的到头处（回头面 span 端 == 长墙 coord）。
-      // 长墙自身可能差半米才到回头面（如关怀厅门口那段被金属门套包住），
-      // 故这里不要求回头面落在长墙 span 内，只看端点对齐与竖向搭接。
-      if (
-        Math.abs(xPlane.coord - returnPlane.spanMin) <= SPAN_TOLERANCE ||
-        Math.abs(xPlane.coord - returnPlane.spanMax) <= SPAN_TOLERANCE
-      ) {
-        candidates.push(
-          [xPlane.coord, returnPlane.coord, -xPlane.sign, returnPlane.sign],
-          [xPlane.coord, returnPlane.coord, xPlane.sign, -returnPlane.sign],
-        )
-      }
-      for (const [x, z, fx, fz] of candidates) {
-        if (!hasJunction(junctions, x, z, fx, fz)) junctions.push([x, z, fx, fz])
-      }
+      if (!startsAtReturn && !endsAtReturn) continue
+
+      removeJunctionsAt(junctions, xPlane.coord, returnPlane.coord)
+
+      const extendsTowardReturnNormal = returnPlane.sign > 0 ? startsAtReturn : endsAtReturn
+      if (!extendsTowardReturnNormal) continue
+
+      const candidate = [xPlane.coord, returnPlane.coord, xPlane.sign, returnPlane.sign]
+      if (!hasJunction(junctions, ...candidate)) junctions.push(candidate)
     }
   }
 

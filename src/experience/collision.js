@@ -8,9 +8,9 @@ export const PLAYER_COLLIDER_BOTTOM = PLAYER_RADIUS + 0.02
 export const PLAYER_HEAD_CLEARANCE = 0.12
 
 const _push = new THREE.Vector3()
-// 玩家只在 XZ 平面移动。门槛与地板交界处会返回带少量水平分量的混合法线；
-// 阈值过高会把该水平分量当成墙体回推，造成技术厅门口连续卡顿。
-const FLOOR_CEILING_NORMAL_Y = 0.5
+// Ignore a purely vertical result, but preserve the XZ response when several
+// nearby surfaces contribute to the same capsule intersection.
+const MIN_HORIZONTAL_NORMAL = 1e-4
 
 export function createPlayerCollisionCapsule(eyeHeight = CONFIG.player.eyeHeight) {
   return new Capsule(
@@ -34,9 +34,11 @@ export function resolveExternalCollisionPosition(position, collisionWorldRef, ey
   const hit = collisionWorld.capsuleIntersect(collisionCapsule)
   if (!hit) return false
 
-  if (Math.abs(hit.normal.y) >= FLOOR_CEILING_NORMAL_Y) return false
+  _push.set(hit.normal.x, 0, hit.normal.z)
+  const horizontalLength = _push.length()
+  if (horizontalLength < MIN_HORIZONTAL_NORMAL) return false
 
-  _push.copy(hit.normal).multiplyScalar(hit.depth)
+  _push.multiplyScalar(hit.depth / horizontalLength)
   collisionCapsule.translate(_push)
   position.x = collisionCapsule.end.x
   position.z = collisionCapsule.end.z

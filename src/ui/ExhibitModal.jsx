@@ -10,7 +10,7 @@ import { Canvas } from '@react-three/fiber'
 import { OrbitControls } from '@react-three/drei'
 import { FIGMA_ASSETS } from '../data/assets.js'
 import { getExhibitInfo } from '../data/exhibits.js'
-import { HighPolyExhibit } from '../experience/HighPolyExhibit.jsx'
+import { ExhibitEnvironment, HighPolyExhibit } from '../experience/HighPolyExhibit.jsx'
 
 function formatTime(seconds) {
   if (!Number.isFinite(seconds)) return '00:00'
@@ -141,12 +141,13 @@ export function ExhibitModal({ exhibit, onClose }) {
       {/* 3D 展示层铺满整屏（与背景图同范围）：放大/旋转不再被右侧小区域裁切 */}
       <div className="absolute inset-0">
         <Canvas dpr={[1, 1.5]} camera={{ position: [0, 0.55, 3.4], fov: 40 }}>
+          <ExhibitEnvironment />
           <ambientLight intensity={0.9} />
           <directionalLight position={[3, 4, 3]} intensity={1.4} />
           <directionalLight position={[-3, 2, -2.5]} intensity={0.5} color="#e8eef8" />
           {info.highPolyModel ? (
             // 高精度展品：点击后才加载该 GLB（组件挂载即请求，主场景不含它），
-            // 加载期间/失败时由组件内部用低模克隆占位
+            // 加载期间只显示进度界面；高模请求失败时才回退到低模克隆
             <HighPolyExhibit
               url={info.highPolyModel}
               fallbackObject={exhibit.object}

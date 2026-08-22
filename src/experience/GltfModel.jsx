@@ -742,8 +742,9 @@ const DENSE_TRIANGLE_LIMIT = 2000
 // 超预算的网格退化为包围盒代理（分格小盒），不再依赖场景级一刀切禁用
 const COLLISION_TRIANGLE_BUDGET = 60000
 const COLLISION_SCENE_TRIANGLE_LIMIT = 5000000
-const TOPOLOGY_SENSITIVE_TRIANGLE_LIMIT = 800
-const TOPOLOGY_SENSITIVE_MIN_SPAN = 4
+const TOPOLOGY_SENSITIVE_TRIANGLE_LIMIT = 6000
+const TOPOLOGY_SENSITIVE_MIN_SPAN = 10
+const COLLISION_MIN_HORIZONTAL_NORMAL = 0.25
 
 function countSceneTriangles(scene) {
   let total = 0
@@ -761,12 +762,51 @@ function requiresPreciseCollision(triangleCount, size) {
   )
 }
 
+function addMeshCollisionTriangles(octree, mesh) {
+  const geometry = mesh.geometry
+  const position = geometry?.getAttribute?.('position')
+  if (!position) return 0
+
+  mesh.updateWorldMatrix(true, false)
+  const index = geometry.getIndex()
+  const triangle = new THREE.Triangle()
+  const normal = new THREE.Vector3()
+  let added = 0
+
+  const addTriangle = (a, b, c) => {
+    triangle.a.fromBufferAttribute(position, a).applyMatrix4(mesh.matrixWorld)
+    triangle.b.fromBufferAttribute(position, b).applyMatrix4(mesh.matrixWorld)
+    triangle.c.fromBufferAttribute(position, c).applyMatrix4(mesh.matrixWorld)
+    triangle.getNormal(normal)
+
+    // Player movement is planar. Floor/ceiling faces must not redirect the
+    // horizontal response when the capsule also touches a wall or cabinet.
+    if (Math.hypot(normal.x, normal.z) < COLLISION_MIN_HORIZONTAL_NORMAL) return
+
+    octree.addTriangle(triangle.clone())
+    added += 1
+  }
+
+  if (index) {
+    for (let offset = 0; offset < index.count; offset += 3) {
+      addTriangle(index.getX(offset), index.getX(offset + 1), index.getX(offset + 2))
+    }
+  } else {
+    for (let offset = 0; offset < position.count; offset += 3) {
+      addTriangle(offset, offset + 1, offset + 2)
+    }
+  }
+
+  return added
+}
+
 // 碰撞体策略：
 // - Octree 默认 maxLevel=16，遇共面巨型三角形会病态细分（4^16 节点潜力）导致卡死/爆内存。
 //   限到 5 层（碰撞粒度 ~1.5m，足够玩家胶囊），建筑网格（外壳/地面/带门洞墙体）全部
 //   保留原始三角精确碰撞——盒子化外壳会把空心建筑填实、封死门洞（实测教训）。
 // - 只有超过单网格面数上限或总预算的高模（tripo 展品等小实物）用分格包围盒代理。
 const COLLISION_MAX_LEVEL = 5
+const COLLISION_TRIANGLES_PER_LEAF = 32
 const PROXY_CELL_SIZE = 2
 const PROXY_MAX_CELLS = 512
 
@@ -779,6 +819,7 @@ function buildCollisionWorld(scene) {
   const startedAt = performance.now()
   const octree = new Octree()
   octree.maxLevel = COLLISION_MAX_LEVEL
+  octree.trianglesPerLeaf = COLLISION_TRIANGLES_PER_LEAF
   const proxies = []
   const pendingPrecise = []
   let preciseTriangleCount = 0
@@ -800,8 +841,8 @@ function buildCollisionWorld(scene) {
     // Large, low-poly room meshes can include actual door openings. Bounding
     // boxes would fill those openings, so keep their triangle topology.
     const usePreciseCollision =
-      triangleCount <= DENSE_TRIANGLE_LIMIT &&
-      (requiresPreciseCollision(triangleCount, size) ||
+      requiresPreciseCollision(triangleCount, size) ||
+      (triangleCount <= DENSE_TRIANGLE_LIMIT &&
         preciseTriangleCount + triangleCount <= COLLISION_TRIANGLE_BUDGET)
 
     if (!usePreciseCollision) {
@@ -840,14 +881,19 @@ function buildCollisionWorld(scene) {
   console.info(
     `[perf] collision 网格分类完成 meshes=${meshCount} 精确三角=${preciseTriangleCount} 代理盒=${proxies.length} 耗时=${(performance.now() - startedAt).toFixed(0)}ms`,
   )
-  for (const object of pendingPrecise) octree.fromGraphNode(object)
+  let collisionTriangleCount = 0
+  for (const object of pendingPrecise) {
+    collisionTriangleCount += addMeshCollisionTriangles(octree, object)
+  }
   console.info(
     `[perf] collision 精确网格入树完成 耗时=${(performance.now() - startedAt).toFixed(0)}ms`,
   )
   for (const proxy of proxies) {
-    octree.fromGraphNode(proxy)
+    collisionTriangleCount += addMeshCollisionTriangles(octree, proxy)
     proxy.geometry.dispose()
   }
+  octree.build()
+  console.info(`[perf] collision effective triangles=${collisionTriangleCount}`)
   console.info(`[perf] collision 完成 耗时=${(performance.now() - startedAt).toFixed(0)}ms`)
   return octree
 }
@@ -934,6 +980,17 @@ const _previewSize = new THREE.Vector3()
 const _decomposePosition = new THREE.Vector3()
 const _decomposeQuaternion = new THREE.Quaternion()
 const _decomposeScale = new THREE.Vector3()
+const PREVIEW_MATERIAL = 'exhibitPreviewMaterial'
+
+function clonePreviewMaterial(material) {
+  if (!material?.clone) return material
+  const clone = material.clone()
+  clone.userData[PREVIEW_MATERIAL] = true
+  if (typeof clone.envMapIntensity === 'number') {
+    clone.envMapIntensity = Math.max(clone.envMapIntensity, 1)
+  }
+  return clone
+}
 
 function buildExhibitPreview(scene, exhibit) {
   const mapName = exhibit.mapName
@@ -950,6 +1007,9 @@ function buildExhibitPreview(scene, exhibit) {
     }
 
     const clone = object.clone()
+    clone.material = Array.isArray(object.material)
+      ? object.material.map(clonePreviewMaterial)
+      : clonePreviewMaterial(object.material)
     object.updateWorldMatrix(true, false)
     object.matrixWorld.decompose(_decomposePosition, _decomposeQuaternion, _decomposeScale)
     clone.position.copy(_decomposePosition)
